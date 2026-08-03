@@ -6,6 +6,7 @@ import org.slf4j.LoggerFactory;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.MethodArgumentNotValidException;
+import org.springframework.web.method.annotation.MethodArgumentTypeMismatchException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
 
@@ -25,12 +26,23 @@ public class GlobalExceptionHandler {
                 .body(new ApiResponse<>("INVALID_ARGUMENT", message, null, java.time.LocalDateTime.now()));
     }
 
+    @ExceptionHandler(MethodArgumentTypeMismatchException.class)
+    public ResponseEntity<ApiResponse<Void>> handleParameterTypeMismatch(
+            MethodArgumentTypeMismatchException exception) {
+        String message = exception.getName() + " must be a valid value";
+        return ResponseEntity.status(HttpStatus.BAD_REQUEST)
+                .body(new ApiResponse<>("INVALID_ARGUMENT", message, null, java.time.LocalDateTime.now()));
+    }
+
     @ExceptionHandler(BusinessException.class)
     public ResponseEntity<ApiResponse<Void>> handleBusiness(BusinessException exception) {
         HttpStatus status = exception instanceof ShortLinkNotFoundException
                 ? HttpStatus.NOT_FOUND
                 : exception instanceof ShortCodeGenerationException
                 ? HttpStatus.INTERNAL_SERVER_ERROR
+                : exception instanceof BrokenLinkException
+                || exception instanceof BlindBoxExhaustedException
+                ? HttpStatus.GONE
                 : HttpStatus.BAD_REQUEST;
         LOGGER.warn("Business exception: code={}, message={}", exception.getCode(), exception.getMessage());
         return ResponseEntity.status(status)

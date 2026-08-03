@@ -1,6 +1,13 @@
 server:
-  port: 8080
+  port: 8090
 
 short-link:
-  domain: http://localhost:8080
+  domain: http://localhost:8090
   code-length: 6
+  health-check:
+    connect-timeout-millis: 2000
+    request-timeout-millis: 3000
+    core-pool-size: 4
+    max-pool-size: 8
+    queue-capacity: 100
+    keep-alive-seconds: 60

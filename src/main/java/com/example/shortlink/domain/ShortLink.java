@@ -9,10 +9,10 @@ import java.util.concurrent.atomic.AtomicLong;
 /**
  * In-memory aggregate for both normal and blind-box short links.
  *
- * <p>The mutable counters use atomic types and status is volatile so a later
- * service implementation can safely observe state across request threads.
- * Compound blind-box consumption will still need a higher-level lock or CAS
- * protocol when implemented.</p>
+ * <p>The mutable counters use atomic types and status is volatile so request
+ * threads can safely observe and update the aggregate in memory. Blind-box
+ * consumption uses a compare-and-set loop so the remaining times cannot be
+ * decremented below zero.</p>
  */
 public final class ShortLink {
 
@@ -106,6 +106,41 @@ public final class ShortLink {
         return remainingTimes;
     }
 
+    /**
+     * Atomically consumes one blind-box resolution.
+     *
+     * <p>The status is updated only after a successful CAS. Callers must use
+     * the boolean result as the source of truth for whether resolution is
+     * allowed; status is a secondary state for visibility and fast failure.</p>
+     */
+    public boolean tryConsume() {
+        if (remainingTimes == null) {
+            throw new IllegalStateException("normal short links do not have remaining times");
+        }
+
+        boolean consumed = tryConsume(remainingTimes);
+        if (consumed && remainingTimes.get() == 0) {
+            markExhausted();
+        }
+        return consumed;
+    }
+
+    private static boolean tryConsume(AtomicInteger remainingTimes) {
+        while (true) {
+            int current = remainingTimes.get();
+            if (current <= 0) {
+                return false;
+            }
+
+            // A plain get followed by decrementAndGet is not atomic: multiple
+            // threads can observe the same positive value and all decrement.
+            if (remainingTimes.compareAndSet(current, current - 1)) {
+                return true;
+            }
+            // Another thread won the race; reread the latest value and retry.
+        }
+    }
+
     public String getBrokenReason() {
         return brokenReason;
     }
@@ -120,7 +155,9 @@ public final class ShortLink {
     }
 
     public void markExhausted() {
-        this.brokenReason = "resolve times exhausted";
+        if (type != LinkType.BLIND_BOX) {
+            throw new IllegalStateException("normal short links cannot be exhausted");
+        }
         this.status = LinkStatus.EXHAUSTED;
     }
 

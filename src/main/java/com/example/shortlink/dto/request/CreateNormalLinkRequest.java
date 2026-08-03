@@ -10,8 +10,6 @@ public record CreateNormalLinkRequest(
         String originalUrl,
 
         @Size(max = 32, message = "channel must not exceed 32 characters")
-        @Pattern(
-                regexp = "^\\s*[\\p{L}\\p{N}_-]*\\s*$",
-                message = "channel may contain only letters, numbers, Chinese characters, underscores, or hyphens")
+        @Pattern(regexp = "^\\s*[\\p{L}\\p{N}_-]*\\s*$", message = "channel may contain only letters, numbers, Chinese characters, underscores, or hyphens")
         String channel) {
 }
