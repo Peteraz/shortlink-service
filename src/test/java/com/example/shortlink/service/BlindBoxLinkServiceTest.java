@@ -57,11 +57,11 @@ class BlindBoxLinkServiceTest {
         ShortLinkResponse response = service.createBlindBoxLink(
                 new CreateBlindBoxLinkRequest(CANDIDATE_URLS, "wechat", 10));
 
-        assertEquals(LinkType.BLIND_BOX, response.type());
-        assertEquals(CANDIDATE_URLS, response.originalUrls());
-        assertEquals(10, response.remainingTimes());
-        assertEquals(LinkStatus.ACTIVE, response.status());
-        assertEquals("wechat", response.channel());
+        assertEquals(LinkType.BLIND_BOX, response.getType());
+        assertEquals(CANDIDATE_URLS, response.getOriginalUrls());
+        assertEquals(10, response.getRemainingTimes());
+        assertEquals(LinkStatus.ACTIVE, response.getStatus());
+        assertEquals("wechat", response.getChannel());
     }
 
     @Test
@@ -91,11 +91,11 @@ class BlindBoxLinkServiceTest {
         ShortLinkService service = createService(
                 new InMemoryShortLinkRepository(), new SequenceGenerator("abc123"));
         String shortCode = service.createBlindBoxLink(
-                new CreateBlindBoxLinkRequest(CANDIDATE_URLS, "wechat", 100)).shortCode();
+                new CreateBlindBoxLinkRequest(CANDIDATE_URLS, "wechat", 100)).getShortCode();
 
         for (int index = 0; index < 100; index++) {
             ResolveResult result = service.resolve(shortCode);
-            assertTrue(CANDIDATE_URLS.contains(result.targetUrl()));
+            assertTrue(CANDIDATE_URLS.contains(result.getTargetUrl()));
         }
     }
 
@@ -105,16 +105,16 @@ class BlindBoxLinkServiceTest {
                 new InMemoryShortLinkRepository(), new SequenceGenerator("abc123"));
         String shortCode = service.createNormalLink(
                 new CreateNormalLinkRequest("HTTPS://EXAMPLE.COM/normal", "wechat"))
-                .shortCode();
+                .getShortCode();
 
         ResolveResult result = service.resolve(shortCode);
 
-        assertEquals("https://example.com/normal", result.targetUrl());
-        assertEquals(LinkType.NORMAL, result.type());
-        assertEquals("wechat", result.channel());
-        assertEquals(1, result.resolveCount());
-        assertEquals(LinkStatus.ACTIVE, result.status());
-        assertNull(result.remainingTimes());
+        assertEquals("https://example.com/normal", result.getTargetUrl());
+        assertEquals(LinkType.NORMAL, result.getType());
+        assertEquals("wechat", result.getChannel());
+        assertEquals(1, result.getResolveCount());
+        assertEquals(LinkStatus.ACTIVE, result.getStatus());
+        assertNull(result.getRemainingTimes());
     }
 
     @Test
@@ -122,7 +122,7 @@ class BlindBoxLinkServiceTest {
         InMemoryShortLinkRepository repository = new InMemoryShortLinkRepository();
         ShortLinkService service = createService(repository, new SequenceGenerator("abc123"));
         String shortCode = service.createBlindBoxLink(
-                new CreateBlindBoxLinkRequest(CANDIDATE_URLS, "wechat", 3)).shortCode();
+                new CreateBlindBoxLinkRequest(CANDIDATE_URLS, "wechat", 3)).getShortCode();
         repository.findByShortCode(shortCode).orElseThrow().markBroken("test");
 
         assertThrows(BrokenLinkException.class, () -> service.resolve(shortCode));
@@ -134,11 +134,11 @@ class BlindBoxLinkServiceTest {
         ShortLinkService service = createService(
                 new InMemoryShortLinkRepository(), new SequenceGenerator("abc123"));
         String shortCode = service.createBlindBoxLink(
-                new CreateBlindBoxLinkRequest(CANDIDATE_URLS, "wechat", resolveTimes)).shortCode();
+                new CreateBlindBoxLinkRequest(CANDIDATE_URLS, "wechat", resolveTimes)).getShortCode();
         Map<String, Integer> counts = new HashMap<>();
 
         for (int index = 0; index < resolveTimes; index++) {
-            String targetUrl = service.resolve(shortCode).targetUrl();
+            String targetUrl = service.resolve(shortCode).getTargetUrl();
             counts.merge(targetUrl, 1, Integer::sum);
         }
 
@@ -155,15 +155,15 @@ class BlindBoxLinkServiceTest {
         InMemoryShortLinkRepository repository = new InMemoryShortLinkRepository();
         ShortLinkService service = createService(repository, new SequenceGenerator("abc123"));
         String shortCode = service.createBlindBoxLink(
-                new CreateBlindBoxLinkRequest(CANDIDATE_URLS, "wechat", 3)).shortCode();
+                new CreateBlindBoxLinkRequest(CANDIDATE_URLS, "wechat", 3)).getShortCode();
 
         service.resolve(shortCode);
         service.resolve(shortCode);
         ResolveResult lastResult = service.resolve(shortCode);
 
-        assertEquals(0, lastResult.remainingTimes());
-        assertEquals(LinkStatus.EXHAUSTED, lastResult.status());
-        assertEquals(3, lastResult.resolveCount());
+        assertEquals(0, lastResult.getRemainingTimes());
+        assertEquals(LinkStatus.EXHAUSTED, lastResult.getStatus());
+        assertEquals(3, lastResult.getResolveCount());
         assertThrows(BlindBoxExhaustedException.class, () -> service.resolve(shortCode));
 
         ShortLink storedLink = repository.findByShortCode(shortCode).orElseThrow();
@@ -178,7 +178,7 @@ class BlindBoxLinkServiceTest {
         InMemoryShortLinkRepository repository = new InMemoryShortLinkRepository();
         ShortLinkService service = createService(repository, new SequenceGenerator("abc123"));
         String shortCode = service.createBlindBoxLink(
-                new CreateBlindBoxLinkRequest(CANDIDATE_URLS, "wechat", validTimes)).shortCode();
+                new CreateBlindBoxLinkRequest(CANDIDATE_URLS, "wechat", validTimes)).getShortCode();
         ShortLink storedLink = repository.findByShortCode(shortCode).orElseThrow();
         CountDownLatch start = new CountDownLatch(1);
         AtomicInteger minimumObservedRemaining = new AtomicInteger(validTimes);

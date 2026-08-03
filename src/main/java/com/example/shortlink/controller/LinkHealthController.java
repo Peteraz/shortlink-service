@@ -18,12 +18,18 @@ import java.util.List;
 @RequestMapping("/api/v1/short-links")
 public class LinkHealthController {
 
+    /**
+     * 短链可达性检测服务。
+     */
     private final LinkHealthService linkHealthService;
 
     public LinkHealthController(LinkHealthService linkHealthService) {
         this.linkHealthService = linkHealthService;
     }
 
+    /**
+     * 单条检测的状态变更由 Service 决定，Controller 不操作领域状态。
+     */
     @PostMapping("/{shortCode}/health-check")
     public ApiResponse<HealthCheckResponse> healthCheck(
             @PathVariable String shortCode,
@@ -31,6 +37,9 @@ public class LinkHealthController {
         return ApiResponse.success(linkHealthService.healthCheck(shortCode, markBroken));
     }
 
+    /**
+     * 批量请求只负责接收校验后的参数，线程池由 Service 管理。
+     */
     @PostMapping("/batch-health-check")
     public ApiResponse<List<HealthCheckResponse>> batchHealthCheck(
             @Valid @RequestBody BatchHealthCheckRequest request) {

@@ -5,7 +5,9 @@ import com.example.shortlink.domain.ShortLink;
 import com.example.shortlink.exception.BlindBoxExhaustedException;
 import com.example.shortlink.exception.BrokenLinkException;
 
-/** Centralizes status transitions and resolution failures for short links. */
+/**
+ * 集中管理短链状态迁移和解析失败规则。
+ */
 public final class LinkStatusPolicy {
 
     public void ensureNormalResolvable(ShortLink shortLink) {
@@ -16,8 +18,7 @@ public final class LinkStatusPolicy {
     }
 
     /**
-     * Blind-box consumption still uses CAS as its authority. This check only
-     * rejects a broken link before the CAS attempt.
+     * 盲盒次数扣减仍以 CAS 结果为最终依据；本方法只在 CAS 前快速拒绝 BROKEN 短链。
      */
     public void ensureBlindNotBroken(ShortLink shortLink) {
         if (shortLink.getStatus() == LinkStatus.BROKEN) {
@@ -42,6 +43,7 @@ public final class LinkStatusPolicy {
     }
 
     public boolean markBrokenIfAllowed(ShortLink shortLink, String reason) {
+        // EXHAUSTED 和 BROKEN 都是终态，自动检测只能标记 ACTIVE 链接。
         if (shortLink.getStatus() != LinkStatus.ACTIVE) {
             return false;
         }

@@ -7,12 +7,18 @@ import org.springframework.stereotype.Component;
 @Component
 public class ShortCodeValidator {
 
+    /**
+     * 提供短码长度配置的属性对象。
+     */
     private final ShortLinkProperties properties;
 
     public ShortCodeValidator(ShortLinkProperties properties) {
         this.properties = properties;
     }
 
+    /**
+     * 校验短码长度和 Base62 字符集。
+     */
     public void validate(String shortCode) {
         if (shortCode == null
                 || shortCode.length() != properties.getCodeLength()

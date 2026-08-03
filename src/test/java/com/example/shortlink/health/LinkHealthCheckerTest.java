@@ -76,20 +76,20 @@ class LinkHealthCheckerTest {
         UrlHealthResult ok = checker.check(url("/ok"));
         UrlHealthResult redirect = checker.check(url("/redirect"));
 
-        assertTrue(ok.reachable());
-        assertEquals(200, ok.httpStatus());
-        assertTrue(redirect.reachable());
-        assertEquals(302, redirect.httpStatus());
+        assertTrue(ok.isReachable());
+        assertEquals(200, ok.getHttpStatus());
+        assertTrue(redirect.isReachable());
+        assertEquals(302, redirect.getHttpStatus());
     }
 
     @Test
     void shouldTreatFourHundredAndFiveHundredStatusesAsUnreachable() {
         DefaultLinkHealthChecker checker = checker(new AllowAllAddressPolicy(), 500);
 
-        assertFalse(checker.check(url("/not-found")).reachable());
-        assertEquals(404, checker.check(url("/not-found")).httpStatus());
-        assertFalse(checker.check(url("/server-error")).reachable());
-        assertEquals(500, checker.check(url("/server-error")).httpStatus());
+        assertFalse(checker.check(url("/not-found")).isReachable());
+        assertEquals(404, checker.check(url("/not-found")).getHttpStatus());
+        assertFalse(checker.check(url("/server-error")).isReachable());
+        assertEquals(500, checker.check(url("/server-error")).getHttpStatus());
     }
 
     @Test
@@ -98,8 +98,8 @@ class LinkHealthCheckerTest {
 
         UrlHealthResult result = checker.check(url("/head405"));
 
-        assertTrue(result.reachable());
-        assertEquals(200, result.httpStatus());
+        assertTrue(result.isReachable());
+        assertEquals(200, result.getHttpStatus());
         assertEquals(1, head405GetCount.get());
     }
 
@@ -109,8 +109,8 @@ class LinkHealthCheckerTest {
 
         UrlHealthResult result = checker.check(url("/timeout"));
 
-        assertFalse(result.reachable());
-        assertTrue(result.message().contains("timed out"));
+        assertFalse(result.isReachable());
+        assertTrue(result.getMessage().contains("timed out"));
     }
 
     @Test
@@ -123,7 +123,7 @@ class LinkHealthCheckerTest {
 
         UrlHealthResult result = checker.check("http://127.0.0.1:" + unusedPort + "/");
 
-        assertFalse(result.reachable());
+        assertFalse(result.isReachable());
     }
 
     @Test
@@ -132,8 +132,8 @@ class LinkHealthCheckerTest {
 
         UrlHealthResult result = checker.check("http://localhost:" + port + "/ok");
 
-        assertFalse(result.reachable());
-        assertTrue(result.message().contains("SSRF security policy"));
+        assertFalse(result.isReachable());
+        assertTrue(result.getMessage().contains("SSRF security policy"));
     }
 
     private DefaultLinkHealthChecker checker(AddressPolicy addressPolicy, int requestTimeoutMillis) {
@@ -168,7 +168,7 @@ class LinkHealthCheckerTest {
 
         @Override
         public void validate(URI uri) {
-            // Local HttpServer endpoints are intentionally allowed only in tests.
+            // 本地 HttpServer 端点仅在测试中按策略放行。
         }
     }
 }

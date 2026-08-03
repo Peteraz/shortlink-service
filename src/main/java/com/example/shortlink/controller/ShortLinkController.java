@@ -28,7 +28,13 @@ import org.springframework.web.bind.annotation.RestController;
 @RequestMapping("/api/v1/short-links")
 public class ShortLinkController {
 
+    /**
+     * 短链创建、查询、解析和断链服务。
+     */
     private final ShortLinkService shortLinkService;
+    /**
+     * 解析结果到接口响应对象的转换器。
+     */
     private final ShortLinkMapper shortLinkMapper;
 
     public ShortLinkController(ShortLinkService shortLinkService) {
@@ -41,34 +47,52 @@ public class ShortLinkController {
         this.shortLinkMapper = shortLinkMapper;
     }
 
+    /**
+     * 创建接口只做请求校验和 Service 编排，不承载幂等或短码逻辑。
+     */
     @PostMapping
     public ApiResponse<ShortLinkResponse> createNormalLink(@Valid @RequestBody CreateNormalLinkRequest request) {
         return ApiResponse.success(shortLinkService.createNormalLink(request));
     }
 
+    /**
+     * 盲盒创建的候选 URL、次数和渠道校验由 DTO 与 Service 共同完成。
+     */
     @PostMapping("/blind-box")
     public ApiResponse<ShortLinkResponse> createBlindBoxLink(
             @Valid @RequestBody CreateBlindBoxLinkRequest request) {
         return ApiResponse.success(shortLinkService.createBlindBoxLink(request));
     }
 
+    /**
+     * 详情查询只读领域快照，不执行真实解析。
+     */
     @GetMapping("/{shortCode}")
     public ApiResponse<ShortLinkResponse> getByShortCode(@PathVariable String shortCode) {
         return ApiResponse.success(shortLinkService.getByShortCode(shortCode));
     }
 
+    /**
+     * 解析详情会执行真实解析，因此普通计数增加、盲盒次数消耗。
+     */
     @GetMapping("/{shortCode}/resolve")
     public ApiResponse<ResolveResponse> resolve(@PathVariable String shortCode) {
         return ApiResponse.success(shortLinkMapper.toResolveResponse(shortLinkService.resolve(shortCode)));
     }
 
+    /**
+     * 断链原因由请求校验，状态迁移由 Service 的状态策略控制。
+     */
     @PatchMapping("/{shortCode}/broken")
     public ApiResponse<ShortLinkResponse> markBroken(
             @PathVariable String shortCode,
             @Valid @RequestBody MarkBrokenRequest request) {
-        return ApiResponse.success(shortLinkService.markBroken(shortCode, request.reason()));
+        return ApiResponse.success(shortLinkService.markBroken(shortCode, request.getReason()));
     }
 
+    /**
+     * 查询参数交给 Service 做规范化、过滤、排序和分页。
+     */
     @GetMapping
     public ApiResponse<PageResponse<ShortLinkResponse>> query(
             @RequestParam(required = false) String shortCode,

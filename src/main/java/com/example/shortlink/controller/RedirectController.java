@@ -13,17 +13,21 @@ import java.net.URI;
 @RestController
 public class RedirectController {
 
+    /** 负责执行短链解析的服务。 */
     private final ShortLinkService shortLinkService;
 
     public RedirectController(ShortLinkService shortLinkService) {
         this.shortLinkService = shortLinkService;
     }
 
+    /**
+     * Controller 只负责把 Service 的解析结果转换为 302 和 Location。
+     */
     @GetMapping("/s/{shortCode}")
     public ResponseEntity<Void> redirect(@PathVariable String shortCode) {
         ResolveResult result = shortLinkService.resolve(shortCode);
         return ResponseEntity.status(HttpStatus.FOUND)
-                .location(URI.create(result.targetUrl()))
+                .location(URI.create(result.getTargetUrl()))
                 .build();
     }
 }

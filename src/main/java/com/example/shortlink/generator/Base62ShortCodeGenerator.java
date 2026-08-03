@@ -10,15 +10,25 @@ import java.util.Objects;
 @Component
 public class Base62ShortCodeGenerator implements ShortCodeGenerator {
 
+    /**
+     * 短码使用的 62 个字符集合。
+     */
     public static final String BASE62_CHARACTERS =
             "0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ";
+
     /**
-     * Retained for compatibility with the first-stage explicit-length test.
-     * The application default is controlled by ShortLinkProperties and is 6.
+     * 为兼容第一阶段显式长度测试而保留的常量。
+     * 应用默认长度由 ShortLinkProperties 控制，当前为 6 位。
      */
     public static final int DEFAULT_LENGTH = 7;
 
+    /**
+     * 生成密码学安全随机数的随机源。
+     */
     private final SecureRandom secureRandom;
+    /**
+     * 当前短码长度。
+     */
     private final int codeLength;
 
     @Autowired

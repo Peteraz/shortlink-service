@@ -7,26 +7,57 @@ import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicLong;
 
 /**
- * In-memory aggregate for both normal and blind-box short links.
+ * 普通短链和盲盒短链共用的内存领域对象。
  *
- * <p>The mutable counters use atomic types and status is volatile so request
- * threads can safely observe and update the aggregate in memory. Blind-box
- * consumption uses a compare-and-set loop so the remaining times cannot be
- * decremented below zero.</p>
+ * <p>可变计数使用原子类型，状态使用 volatile，保证并发请求可以安全地观察和更新内存对象。
+ * 盲盒次数通过 CAS 循环扣减，避免剩余次数减到负数。</p>
  */
 public final class ShortLink {
 
+    /**
+     * 未传入渠道时使用的默认渠道。
+     */
     public static final String DEFAULT_CHANNEL = "default";
 
+    /**
+     * 短链短码。
+     */
     private final String shortCode;
+    /**
+     * 短链类型。
+     */
     private final LinkType type;
+    /**
+     * 原始长链接列表；创建后保存为不可变副本。
+     */
     private final List<String> originalUrls;
+    /**
+     * 归一化后的渠道。
+     */
     private final String channel;
+    /**
+     * 短链创建时间。
+     */
     private final LocalDateTime createdAt;
+    /**
+     * 原子解析次数，仅供领域对象内部并发更新。
+     */
     private final AtomicLong resolveCount;
+    /**
+     * 短链当前状态。
+     */
     private volatile LinkStatus status;
+    /**
+     * 盲盒剩余有效次数；普通短链没有该计数器。
+     */
     private final AtomicInteger remainingTimes;
+    /**
+     * 主动或自动断链时记录的原因。
+     */
     private volatile String brokenReason;
+    /**
+     * 最近一次可达性检测时间。
+     */
     private volatile LocalDateTime lastCheckedAt;
 
     private ShortLink(
@@ -53,6 +84,9 @@ public final class ShortLink {
         this.remainingTimes = remainingTimes == null ? null : new AtomicInteger(remainingTimes);
     }
 
+    /**
+     * 普通短链只有一个目标 URL，不维护盲盒有效次数。
+     */
     public static ShortLink normal(
             String shortCode,
             String originalUrl,
@@ -61,6 +95,9 @@ public final class ShortLink {
         return new ShortLink(shortCode, LinkType.NORMAL, List.of(originalUrl), channel, createdAt, null);
     }
 
+    /**
+     * 盲盒保存候选 URL 的不可变副本，并以 validTimes 初始化原子计数器。
+     */
     public static ShortLink blindBox(
             String shortCode,
             List<String> originalUrls,
@@ -81,7 +118,9 @@ public final class ShortLink {
         return type;
     }
 
-    /** Returns the defensive immutable URL list. */
+    /**
+     * 返回防御性复制后的不可变 URL 列表。
+     */
     public List<String> getOriginalUrls() {
         return originalUrls;
     }
@@ -107,13 +146,13 @@ public final class ShortLink {
     }
 
     /**
-     * Atomically consumes one blind-box resolution.
+     * 原子消耗一次盲盒解析次数。
      *
-     * <p>The status is updated only after a successful CAS. Callers must use
-     * the boolean result as the source of truth for whether resolution is
-     * allowed; status is a secondary state for visibility and fast failure.</p>
+     * <p>只有 CAS 成功后才更新状态。调用方必须以返回值作为是否允许解析的唯一依据，
+     * status 仅用于展示和快速失败。</p>
      */
     public boolean tryConsume() {
+        // CAS 是次数扣减的唯一授权结果；status 只用于展示和快速失败。
         if (remainingTimes == null) {
             throw new IllegalStateException("normal short links do not have remaining times");
         }
@@ -132,12 +171,11 @@ public final class ShortLink {
                 return false;
             }
 
-            // A plain get followed by decrementAndGet is not atomic: multiple
-            // threads can observe the same positive value and all decrement.
+            // 先 get 再 decrementAndGet 不是原子操作：多个线程可能同时读到同一个正数并全部扣减。
             if (remainingTimes.compareAndSet(current, current - 1)) {
                 return true;
             }
-            // Another thread won the race; reread the latest value and retry.
+            // 其他线程已经抢先更新，重新读取最新值并继续重试。
         }
     }
 
@@ -149,11 +187,17 @@ public final class ShortLink {
         return lastCheckedAt;
     }
 
+    /**
+     * 只记录断链原因和状态，是否允许该状态迁移由 LinkStatusPolicy 决定。
+     */
     public void markBroken(String reason) {
         this.brokenReason = reason;
         this.status = LinkStatus.BROKEN;
     }
 
+    /**
+     * 只有剩余次数已经原子扣减到 0 时，才允许进入 EXHAUSTED。
+     */
     public void markExhausted() {
         if (type != LinkType.BLIND_BOX) {
             throw new IllegalStateException("normal short links cannot be exhausted");

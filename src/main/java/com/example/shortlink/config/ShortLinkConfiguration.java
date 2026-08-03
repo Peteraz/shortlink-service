@@ -16,6 +16,9 @@ public class ShortLinkConfiguration {
         return Clock.systemDefaultZone();
     }
 
+    /**
+     * 创建单例 HttpClient，禁止自动跟随重定向以限制 SSRF 扩散范围。
+     */
     @Bean(name = "healthCheckHttpClient")
     public HttpClient healthCheckHttpClient(HealthCheckProperties properties) {
         return HttpClient.newBuilder()
@@ -24,6 +27,9 @@ public class ShortLinkConfiguration {
                 .build();
     }
 
+    /**
+     * 创建有界健康检测线程池，并在 Spring 关闭时等待任务后释放资源。
+     */
     @Bean(name = "healthCheckExecutor", destroyMethod = "destroy")
     public ThreadPoolTaskExecutor healthCheckExecutor(HealthCheckProperties properties) {
         ThreadPoolTaskExecutor executor = new ThreadPoolTaskExecutor();

@@ -9,6 +9,9 @@ import org.springframework.stereotype.Component;
 @Component
 public class DefaultBlindBoxSelector implements BlindBoxSelector {
 
+    /**
+     * 只选择候选下标，不扣减次数，也不修改候选列表。
+     */
     @Override
     public String select(List<String> candidates) {
         Objects.requireNonNull(candidates, "candidates must not be null");
@@ -16,8 +19,7 @@ public class DefaultBlindBoxSelector implements BlindBoxSelector {
             throw new IllegalArgumentException("candidates must not be empty");
         }
 
-        // Every index has the same probability; the selector does not consume
-        // times or mutate the caller-owned list.
+        // 每个下标被选中的概率相同；选择器不扣减次数，也不修改调用方持有的列表。
         int selectedIndex = ThreadLocalRandom.current().nextInt(candidates.size());
         return candidates.get(selectedIndex);
     }

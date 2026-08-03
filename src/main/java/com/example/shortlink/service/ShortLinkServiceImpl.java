@@ -36,25 +36,66 @@ import java.util.Set;
 @Service
 public class ShortLinkServiceImpl implements ShortLinkService {
 
+    /**
+     * 短码生成发生碰撞时允许的最大重试次数。
+     */
     private static final int MAX_GENERATION_ATTEMPTS = 10;
+    /**
+     * 盲盒候选 URL 的最小数量。
+     */
     private static final int MIN_BLIND_BOX_URLS = 2;
+    /**
+     * 盲盒候选 URL 的最大数量。
+     */
     private static final int MAX_BLIND_BOX_URLS = 100;
+    /**
+     * 盲盒有效次数的最大值。
+     */
     private static final int MAX_VALID_TIMES = 1_000_000;
 
+    /**
+     * 短链内存仓储。
+     */
     private final ShortLinkRepository repository;
+    /**
+     * 短码生成器。
+     */
     private final ShortCodeGenerator shortCodeGenerator;
+    /**
+     * URL 校验和规范化器。
+     */
     private final UrlValidator urlValidator;
+    /**
+     * 渠道规范化器。
+     */
     private final ChannelNormalizer channelNormalizer;
+    /**
+     * 普通短链业务唯一键生成器。
+     */
     private final NormalLinkBusinessKeyFactory businessKeyFactory;
+    /**
+     * 领域对象到响应对象的转换器。
+     */
     private final ShortLinkMapper mapper;
+    /**
+     * 短码格式校验器。
+     */
     private final ShortCodeValidator shortCodeValidator;
+    /**
+     * 盲盒候选 URL 选择器。
+     */
     private final BlindBoxSelector blindBoxSelector;
+    /**
+     * 统一时间来源，便于测试固定时间。
+     */
     private final Clock clock;
+    /**
+     * 集中管理短链状态规则。
+     */
     private final LinkStatusPolicy linkStatusPolicy;
 
     /**
-     * Keeps the existing construction contract for unit tests and callers that
-     * only use normal links.
+     * 保留原有构造方式，兼容只使用普通短链的单元测试和调用方。
      */
     public ShortLinkServiceImpl(
             ShortLinkRepository repository,
@@ -100,11 +141,14 @@ public class ShortLinkServiceImpl implements ShortLinkService {
         this.linkStatusPolicy = new LinkStatusPolicy();
     }
 
+    /**
+     * 规范化 URL 和渠道后，通过业务键原子保证普通短链幂等。
+     */
     @Override
     public ShortLinkResponse createNormalLink(CreateNormalLinkRequest request) {
         Objects.requireNonNull(request, "request must not be null");
-        String normalizedUrl = urlValidator.validateAndNormalize(request.originalUrl());
-        String normalizedChannel = channelNormalizer.normalize(request.channel());
+        String normalizedUrl = urlValidator.validateAndNormalize(request.getOriginalUrl());
+        String normalizedChannel = channelNormalizer.normalize(request.getChannel());
         String businessKey = businessKeyFactory.create(normalizedUrl, normalizedChannel);
 
         String existingCode = repository.findNormalCodeByBusinessKey(businessKey).orElse(null);
@@ -118,23 +162,32 @@ public class ShortLinkServiceImpl implements ShortLinkService {
         return getByShortCode(shortCode);
     }
 
+    /**
+     * 盲盒不参与普通 URL 幂等，每次请求都生成并原子占用一个新短码。
+     */
     @Override
     public ShortLinkResponse createBlindBoxLink(CreateBlindBoxLinkRequest request) {
         Objects.requireNonNull(request, "request must not be null");
-        List<String> normalizedUrls = normalizeBlindBoxUrls(request.originalUrls());
-        int validTimes = validateValidTimes(request.validTimes());
-        String normalizedChannel = channelNormalizer.normalize(request.channel());
+        List<String> normalizedUrls = normalizeBlindBoxUrls(request.getOriginalUrls());
+        int validTimes = validateValidTimes(request.getValidTimes());
+        String normalizedChannel = channelNormalizer.normalize(request.getChannel());
 
         String shortCode = createAndStoreBlindBox(normalizedUrls, normalizedChannel, validTimes);
         return getByShortCode(shortCode);
     }
 
+    /**
+     * 只读取详情，不执行解析，因此不会增加访问次数或消耗盲盒次数。
+     */
     @Override
     public ShortLinkResponse getByShortCode(String shortCode) {
         shortCodeValidator.validate(shortCode);
         return mapper.toResponse(findByShortCode(shortCode));
     }
 
+    /**
+     * 根据类型分派解析流程；盲盒流程必须先通过 CAS 扣减有效次数。
+     */
     @Override
     public ResolveResult resolve(String shortCode) {
         shortCodeValidator.validate(shortCode);
@@ -147,6 +200,7 @@ public class ShortLinkServiceImpl implements ShortLinkService {
     }
 
     private ResolveResult resolveNormal(ShortLink shortLink) {
+        // 普通短链只有 ACTIVE 状态可解析，计数使用原子自增。
         linkStatusPolicy.ensureNormalResolvable(shortLink);
 
         String targetUrl = shortLink.getOriginalUrls().getFirst();
@@ -155,22 +209,24 @@ public class ShortLinkServiceImpl implements ShortLinkService {
     }
 
     private ResolveResult resolveBlindBox(ShortLink shortLink) {
+        // BROKEN 在 CAS 前快速失败；EXHAUSTED 仍以 CAS 结果作为最终判断。
         linkStatusPolicy.ensureBlindNotBroken(shortLink);
 
-        // The CAS result is the authority. Checking status alone would allow
-        // concurrent callers to resolve after the last valid time was spent.
+        // CAS 结果才是最终依据；只检查状态会让并发调用方在最后一次次数消耗后继续解析。
         if (!shortLink.tryConsume()) {
             shortLink.markExhausted();
             throw linkStatusPolicy.exhausted(shortLink);
         }
 
-        // Select only after a successful CAS, so every returned target has
-        // consumed exactly one valid time.
+        // 只有 CAS 成功后才选择目标，保证每个返回的目标都恰好消耗一次有效次数。
         String targetUrl = blindBoxSelector.select(shortLink.getOriginalUrls());
         shortLink.getResolveCount().incrementAndGet();
         return mapper.toResolveResult(shortLink, targetUrl);
     }
 
+    /**
+     * 标记操作由状态策略约束；BROKEN 重复标记保持原有原因实现幂等。
+     */
     @Override
     public ShortLinkResponse markBroken(String shortCode, String reason) {
         shortCodeValidator.validate(shortCode);
@@ -185,27 +241,30 @@ public class ShortLinkServiceImpl implements ShortLinkService {
         return mapper.toResponse(shortLink);
     }
 
+    /**
+     * 在内存快照上过滤、按创建时间倒序排序并返回不可变分页结果。
+     */
     @Override
     public PageResponse<ShortLinkResponse> query(ShortLinkQuery query) {
         Objects.requireNonNull(query, "query must not be null");
-        int page = validatePage(query.page());
-        int size = validateSize(query.size());
-        if (query.shortCode() != null) {
-            shortCodeValidator.validate(query.shortCode());
+        int page = validatePage(query.getPage());
+        int size = validateSize(query.getSize());
+        if (query.getShortCode() != null) {
+            shortCodeValidator.validate(query.getShortCode());
         }
-        String normalizedChannel = query.channel() == null
+        String normalizedChannel = query.getChannel() == null
                 ? null
-                : channelNormalizer.normalize(query.channel());
+                : channelNormalizer.normalize(query.getChannel());
 
         List<ShortLink> matchingLinks = repository.findAll().stream()
-                .filter(shortLink -> query.shortCode() == null
-                        || shortLink.getShortCode().equals(query.shortCode()))
+                .filter(shortLink -> query.getShortCode() == null
+                        || shortLink.getShortCode().equals(query.getShortCode()))
                 .filter(shortLink -> normalizedChannel == null
                         || shortLink.getChannel().equals(normalizedChannel))
-                .filter(shortLink -> query.status() == null
-                        || shortLink.getStatus() == query.status())
-                .filter(shortLink -> query.type() == null
-                        || shortLink.getType() == query.type())
+                .filter(shortLink -> query.getStatus() == null
+                        || shortLink.getStatus() == query.getStatus())
+                .filter(shortLink -> query.getType() == null
+                        || shortLink.getType() == query.getType())
                 .sorted(Comparator.comparing(ShortLink::getCreatedAt)
                         .reversed()
                         .thenComparing(ShortLink::getShortCode))
@@ -223,6 +282,9 @@ public class ShortLinkServiceImpl implements ShortLinkService {
         return new PageResponse<>(content, page, size, totalElements, totalPages);
     }
 
+    /**
+     * 普通短码碰撞时重试，只有 Repository 原子占用成功才返回短码。
+     */
     private String createAndStore(String normalizedUrl, String normalizedChannel) {
         for (int attempt = 1; attempt <= MAX_GENERATION_ATTEMPTS; attempt++) {
             String candidateCode = shortCodeGenerator.generate();
@@ -232,8 +294,8 @@ public class ShortLinkServiceImpl implements ShortLinkService {
                     normalizedChannel,
                     LocalDateTime.now(clock));
 
-            // The repository atomically reserves the global short code. A false result
-            // means another link owns the candidate, so retry with a fresh candidate.
+            // Repository 原子保留全局短码；返回 false 表示候选短码已被其他短链占用，
+            // 因此使用新的候选短码继续重试。
             if (repository.saveIfAbsent(candidateCode, shortLink)) {
                 return candidateCode;
             }
@@ -242,6 +304,9 @@ public class ShortLinkServiceImpl implements ShortLinkService {
                 "failed to generate a unique short code after " + MAX_GENERATION_ATTEMPTS + " attempts");
     }
 
+    /**
+     * 盲盒每次创建都生成新短码，但仍使用相同的碰撞重试上限。
+     */
     private String createAndStoreBlindBox(
             List<String> normalizedUrls,
             String normalizedChannel,
@@ -263,6 +328,9 @@ public class ShortLinkServiceImpl implements ShortLinkService {
                 "failed to generate a unique short code after " + MAX_GENERATION_ATTEMPTS + " attempts");
     }
 
+    /**
+     * 先做数量校验，再规范化并用规范化 URL 检测列表内重复项。
+     */
     private List<String> normalizeBlindBoxUrls(List<String> originalUrls) {
         if (originalUrls == null || originalUrls.size() < MIN_BLIND_BOX_URLS) {
             throw new BlindBoxUrlInsufficientException(

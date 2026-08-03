@@ -56,8 +56,8 @@ class LinkHealthControllerTest {
 
         @Override
         public List<HealthCheckResponse> batchHealthCheck(BatchHealthCheckRequest request) {
-            return request.shortCodes().stream()
-                    .map(code -> healthCheck(code, request.markBroken()))
+            return request.getShortCodes().stream()
+                    .map(code -> healthCheck(code, request.isMarkBroken()))
                     .toList();
         }
     }

@@ -19,12 +19,18 @@ import java.time.Duration;
 @Component
 public class DefaultLinkHealthChecker implements LinkHealthChecker {
 
+    /** HTTP 可达状态码的下界。 */
     private static final int HTTP_OK_MIN = 200;
+    /** HTTP 可达状态码的上界，不包含 400。 */
     private static final int HTTP_REDIRECT_MAX = 400;
+    /** HEAD 不被目标服务支持时返回的状态码。 */
     private static final int METHOD_NOT_ALLOWED = 405;
 
+    /** 由 Spring 注入并复用的单例 HTTP 客户端。 */
     private final HttpClient httpClient;
+    /** 请求前执行 SSRF 地址安全校验的策略。 */
     private final AddressPolicy addressPolicy;
+    /** 单次 HTTP 请求超时时间。 */
     private final Duration requestTimeout;
 
     public DefaultLinkHealthChecker(
@@ -36,6 +42,9 @@ public class DefaultLinkHealthChecker implements LinkHealthChecker {
         this.requestTimeout = Duration.ofMillis(properties.getRequestTimeoutMillis());
     }
 
+    /**
+     * 先完成 SSRF 校验，再执行 HEAD；网络异常统一转换为不可达结果。
+     */
     @Override
     public UrlHealthResult check(String url) {
         long startedAt = System.nanoTime();
@@ -87,6 +96,9 @@ public class DefaultLinkHealthChecker implements LinkHealthChecker {
         }
     }
 
+    /**
+     * HEAD 返回 405 时才执行 GET，并关闭流而不下载完整响应体。
+     */
     private UrlHealthResult checkWithGet(URI uri, String url, long startedAt)
             throws IOException, InterruptedException {
         HttpRequest getRequest = HttpRequest.newBuilder(uri)
@@ -96,8 +108,7 @@ public class DefaultLinkHealthChecker implements LinkHealthChecker {
         HttpResponse<InputStream> getResponse = httpClient.send(
                 getRequest,
                 HttpResponse.BodyHandlers.ofInputStream());
-        // Reading the response body is unnecessary for reachability. Closing
-        // the stream releases the connection without downloading the payload.
+        // 判断可达性不需要读取完整响应体；关闭流即可释放连接，避免下载完整内容。
         try (InputStream ignored = getResponse.body()) {
             return result(
                     url,

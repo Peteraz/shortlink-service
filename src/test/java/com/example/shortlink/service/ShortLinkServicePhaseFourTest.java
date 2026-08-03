@@ -44,15 +44,15 @@ class ShortLinkServicePhaseFourTest {
         ShortLinkService service = createService(repository, new SequenceGenerator("abc123"), FIXED_CLOCK);
         String shortCode = service.createNormalLink(
                 new CreateNormalLinkRequest("https://example.com/active", "wechat"))
-                .shortCode();
+                .getShortCode();
 
         ShortLinkResponse first = service.markBroken(shortCode, "  运营人员主动下线  ");
         ShortLinkResponse second = service.markBroken(shortCode, "another reason");
 
-        assertEquals(LinkStatus.BROKEN, first.status());
-        assertEquals("运营人员主动下线", first.brokenReason());
-        assertEquals(first.brokenReason(), second.brokenReason());
-        assertEquals(LinkStatus.BROKEN, service.getByShortCode(shortCode).status());
+        assertEquals(LinkStatus.BROKEN, first.getStatus());
+        assertEquals("运营人员主动下线", first.getBrokenReason());
+        assertEquals(first.getBrokenReason(), second.getBrokenReason());
+        assertEquals(LinkStatus.BROKEN, service.getByShortCode(shortCode).getStatus());
         assertThrows(BrokenLinkException.class, () -> service.resolve(shortCode));
         assertEquals(1, repository.findAll().size());
     }
@@ -62,13 +62,13 @@ class ShortLinkServicePhaseFourTest {
         InMemoryShortLinkRepository repository = new InMemoryShortLinkRepository();
         ShortLinkService service = createService(repository, new SequenceGenerator("abc123"), FIXED_CLOCK);
         String shortCode = service.createBlindBoxLink(
-                new CreateBlindBoxLinkRequest(BLIND_BOX_URLS, "wechat", 1)).shortCode();
+                new CreateBlindBoxLinkRequest(BLIND_BOX_URLS, "wechat", 1)).getShortCode();
 
         service.resolve(shortCode);
 
         assertThrows(BlindBoxExhaustedException.class,
                 () -> service.markBroken(shortCode, "too late"));
-        assertEquals(LinkStatus.EXHAUSTED, service.getByShortCode(shortCode).status());
+        assertEquals(LinkStatus.EXHAUSTED, service.getByShortCode(shortCode).getStatus());
     }
 
     @Test
@@ -81,45 +81,45 @@ class ShortLinkServicePhaseFourTest {
                 clock);
 
         String firstCode = service.createNormalLink(
-                new CreateNormalLinkRequest("https://example.com/first", "alpha")).shortCode();
+                new CreateNormalLinkRequest("https://example.com/first", "alpha")).getShortCode();
         String secondCode = service.createNormalLink(
-                new CreateNormalLinkRequest("https://example.com/second", "beta")).shortCode();
+                new CreateNormalLinkRequest("https://example.com/second", "beta")).getShortCode();
         String thirdCode = service.createBlindBoxLink(
-                new CreateBlindBoxLinkRequest(BLIND_BOX_URLS, "alpha", 2)).shortCode();
+                new CreateBlindBoxLinkRequest(BLIND_BOX_URLS, "alpha", 2)).getShortCode();
 
         PageResponse<ShortLinkResponse> firstPage = service.query(
                 new ShortLinkQuery(null, null, null, null, 0, 2));
         PageResponse<ShortLinkResponse> secondPage = service.query(
                 new ShortLinkQuery(null, null, null, null, 1, 2));
 
-        assertEquals(3, firstPage.totalElements());
-        assertEquals(2, firstPage.totalPages());
-        assertEquals(List.of(thirdCode, secondCode), firstPage.content().stream()
-                .map(ShortLinkResponse::shortCode)
+        assertEquals(3, firstPage.getTotalElements());
+        assertEquals(2, firstPage.getTotalPages());
+        assertEquals(List.of(thirdCode, secondCode), firstPage.getContent().stream()
+                .map(ShortLinkResponse::getShortCode)
                 .toList());
-        assertEquals(List.of(firstCode), secondPage.content().stream()
-                .map(ShortLinkResponse::shortCode)
+        assertEquals(List.of(firstCode), secondPage.getContent().stream()
+                .map(ShortLinkResponse::getShortCode)
                 .toList());
 
         PageResponse<ShortLinkResponse> emptyPage = service.query(
                 new ShortLinkQuery(null, null, null, null, 2, 2));
-        assertEquals(2, emptyPage.totalPages());
-        assertEquals(0, emptyPage.content().size());
+        assertEquals(2, emptyPage.getTotalPages());
+        assertEquals(0, emptyPage.getContent().size());
 
         PageResponse<ShortLinkResponse> channelPage = service.query(
                 new ShortLinkQuery(null, "alpha", null, null, 0, 20));
-        assertEquals(2, channelPage.totalElements());
+        assertEquals(2, channelPage.getTotalElements());
 
         PageResponse<ShortLinkResponse> typePage = service.query(
                 new ShortLinkQuery(null, "alpha", null, LinkType.BLIND_BOX, 0, 20));
-        assertEquals(1, typePage.totalElements());
-        assertEquals(thirdCode, typePage.content().getFirst().shortCode());
+        assertEquals(1, typePage.getTotalElements());
+        assertEquals(thirdCode, typePage.getContent().getFirst().getShortCode());
 
         service.markBroken(firstCode, "offline");
         PageResponse<ShortLinkResponse> statusPage = service.query(
                 new ShortLinkQuery(null, null, LinkStatus.BROKEN, null, 0, 20));
-        assertEquals(1, statusPage.totalElements());
-        assertEquals(firstCode, statusPage.content().getFirst().shortCode());
+        assertEquals(1, statusPage.getTotalElements());
+        assertEquals(firstCode, statusPage.getContent().getFirst().getShortCode());
     }
 
     @Test

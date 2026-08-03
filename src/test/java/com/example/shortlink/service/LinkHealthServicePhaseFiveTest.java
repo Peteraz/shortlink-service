@@ -36,8 +36,8 @@ class LinkHealthServicePhaseFiveTest {
 
         HealthCheckResponse response = service.healthCheck("abc123", false);
 
-        assertTrue(response.reachable());
-        assertFalse(response.markedBroken());
+        assertTrue(response.isReachable());
+        assertFalse(response.isMarkedBroken());
         assertEquals(LinkStatus.ACTIVE, repository.findByShortCode("abc123").orElseThrow().getStatus());
         assertNotNull(repository.findByShortCode("abc123").orElseThrow().getLastCheckedAt());
     }
@@ -52,8 +52,8 @@ class LinkHealthServicePhaseFiveTest {
 
         HealthCheckResponse response = service.healthCheck("abc123", true);
 
-        assertFalse(response.reachable());
-        assertTrue(response.markedBroken());
+        assertFalse(response.isReachable());
+        assertTrue(response.isMarkedBroken());
         ShortLink link = repository.findByShortCode("abc123").orElseThrow();
         assertEquals(LinkStatus.BROKEN, link.getStatus());
         assertEquals("automatic health check: all original URLs are unreachable", link.getBrokenReason());
@@ -73,9 +73,9 @@ class LinkHealthServicePhaseFiveTest {
 
         HealthCheckResponse response = service.healthCheck("abc123", true);
 
-        assertTrue(response.reachable());
-        assertFalse(response.markedBroken());
-        assertEquals(2, response.urlResults().size());
+        assertTrue(response.isReachable());
+        assertFalse(response.isMarkedBroken());
+        assertEquals(2, response.getUrlResults().size());
         assertEquals(LinkStatus.ACTIVE, repository.findByShortCode("abc123").orElseThrow().getStatus());
     }
 
@@ -93,8 +93,8 @@ class LinkHealthServicePhaseFiveTest {
 
         HealthCheckResponse response = service.healthCheck("abc123", true);
 
-        assertFalse(response.reachable());
-        assertTrue(response.markedBroken());
+        assertFalse(response.isReachable());
+        assertTrue(response.isMarkedBroken());
         assertEquals(LinkStatus.BROKEN, repository.findByShortCode("abc123").orElseThrow().getStatus());
     }
 
@@ -114,8 +114,8 @@ class LinkHealthServicePhaseFiveTest {
 
         HealthCheckResponse response = service.healthCheck("abc123", true);
 
-        assertFalse(response.reachable());
-        assertFalse(response.markedBroken());
+        assertFalse(response.isReachable());
+        assertFalse(response.isMarkedBroken());
         assertEquals(LinkStatus.EXHAUSTED, link.getStatus());
         assertNotNull(link.getLastCheckedAt());
     }
@@ -138,11 +138,11 @@ class LinkHealthServicePhaseFiveTest {
                 new BatchHealthCheckRequest(List.of("abc123", "abc123", "zzz999", "def456"), false));
 
         assertEquals(3, results.size());
-        assertEquals("abc123", results.get(0).shortCode());
-        assertFalse(results.get(1).reachable());
-        assertEquals("short link not found", results.get(1).message());
-        assertFalse(results.get(2).reachable());
-        assertEquals("health check failed", results.get(2).urlResults().getFirst().message());
+        assertEquals("abc123", results.get(0).getShortCode());
+        assertFalse(results.get(1).isReachable());
+        assertEquals("short link not found", results.get(1).getMessage());
+        assertFalse(results.get(2).isReachable());
+        assertEquals("health check failed", results.get(2).getUrlResults().getFirst().getMessage());
     }
 
     private LinkHealthService createService(InMemoryShortLinkRepository repository, LinkHealthChecker checker) {

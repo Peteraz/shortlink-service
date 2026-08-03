@@ -9,8 +9,12 @@ import java.net.UnknownHostException;
 @Component
 public class DefaultAddressPolicy implements AddressPolicy {
 
+    /** 对外返回的统一安全策略拒绝消息，避免泄露内部网络信息。 */
     private static final String BLOCKED_MESSAGE = "request blocked by SSRF security policy";
 
+    /**
+     * 解析 host 的全部地址并拒绝任意受限地址，策略采用 fail-closed。
+     */
     @Override
     public void validate(URI uri) {
         String scheme = uri.getScheme();
@@ -36,9 +40,8 @@ public class DefaultAddressPolicy implements AddressPolicy {
             throw new AddressPolicyViolationException("DNS resolution failed");
         }
 
-        // Resolve every address and reject if any answer is private or local.
-        // This fails closed for multi-address DNS responses and avoids relying
-        // only on the user-controlled host string.
+        // 解析全部地址，只要任一结果属于私有地址或本机地址就拒绝请求。
+        // 多地址 DNS 结果采用 fail-closed 策略，不能只依赖用户可控的 host 字符串。
         for (InetAddress address : addresses) {
             if (isBlocked(address)) {
                 throw new AddressPolicyViolationException(BLOCKED_MESSAGE);

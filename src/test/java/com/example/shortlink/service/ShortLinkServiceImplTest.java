@@ -47,7 +47,7 @@ class ShortLinkServiceImplTest {
         ShortLinkResponse first = service.createNormalLink(request);
         ShortLinkResponse second = service.createNormalLink(request);
 
-        assertEquals(first.shortCode(), second.shortCode());
+        assertEquals(first.getShortCode(), second.getShortCode());
         assertEquals(1, repository.findAll().size());
         assertEquals(1, repository.findNormalCodeByBusinessKey(
                 "https://example.com/article/1001|wechat").stream().count());
@@ -64,7 +64,7 @@ class ShortLinkServiceImplTest {
         ShortLinkResponse douyin = service.createNormalLink(
                 request("https://example.com/article/1001", "douyin"));
 
-        assertNotEquals(wechat.shortCode(), douyin.shortCode());
+        assertNotEquals(wechat.getShortCode(), douyin.getShortCode());
         assertEquals(2, repository.findAll().size());
     }
 
@@ -84,7 +84,7 @@ class ShortLinkServiceImplTest {
                     start.await();
                     return service.createNormalLink(
                             request("https://example.com/article/1001", "wechat"))
-                            .shortCode();
+                            .getShortCode();
                 });
             }
 
@@ -112,7 +112,7 @@ class ShortLinkServiceImplTest {
         ShortLinkService service = createService(repository, new SequenceGenerator("abc123"));
         String shortCode = service.createNormalLink(
                 request("https://example.com/concurrent-resolve", "wechat"))
-                .shortCode();
+                .getShortCode();
         int taskCount = 100;
         CountDownLatch start = new CountDownLatch(1);
         ExecutorService executor = Executors.newFixedThreadPool(20);
@@ -152,7 +152,7 @@ class ShortLinkServiceImplTest {
         ShortLinkResponse response = service.createNormalLink(
                 request("https://example.com/article/1001", "wechat"));
 
-        assertEquals("def456", response.shortCode());
+        assertEquals("def456", response.getShortCode());
         assertEquals(2, repository.findAll().size());
     }
 

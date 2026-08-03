@@ -10,12 +10,18 @@ import org.springframework.stereotype.Component;
 @Component
 public class ShortLinkMapper {
 
+    /**
+     * 用于拼接完整短链地址的配置。
+     */
     private final ShortLinkProperties properties;
 
     public ShortLinkMapper(ShortLinkProperties properties) {
         this.properties = properties;
     }
 
+    /**
+     * 将领域对象快照转换为响应 DTO，并读取原子计数的普通数值。
+     */
     public ShortLinkResponse toResponse(ShortLink shortLink) {
         return new ShortLinkResponse(
                 shortLink.getShortCode(),
@@ -43,16 +49,19 @@ public class ShortLinkMapper {
                 shortLink.getStatus());
     }
 
+    /**
+     * 将已经完成的解析结果转换为 HTTP API 使用的 DTO。
+     */
     public ResolveResponse toResolveResponse(ResolveResult result) {
         return new ResolveResponse(
-                result.shortCode(),
-                result.targetUrl(),
-                result.type(),
-                result.channel(),
-                result.createdAt(),
-                result.resolveCount(),
-                result.remainingTimes(),
-                result.status());
+                result.getShortCode(),
+                result.getTargetUrl(),
+                result.getType(),
+                result.getChannel(),
+                result.getCreatedAt(),
+                result.getResolveCount(),
+                result.getRemainingTimes(),
+                result.getStatus());
     }
 
     private Integer getRemainingTimes(ShortLink shortLink) {
