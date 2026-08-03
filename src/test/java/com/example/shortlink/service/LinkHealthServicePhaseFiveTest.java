@@ -107,7 +107,7 @@ class LinkHealthServicePhaseFiveTest {
                 "wechat",
                 FIXED_CLOCK.instant().atZone(ZoneOffset.UTC).toLocalDateTime(),
                 1);
-        link.markExhausted();
+        assertTrue(link.tryConsume());
         repository.saveIfAbsent("abc123", link);
         LinkHealthService service = createService(repository,
                 url -> new UrlHealthResult(url, false, 500, "error", 1));

@@ -158,6 +158,9 @@ public final class ShortLink {
         if (type != LinkType.BLIND_BOX) {
             throw new IllegalStateException("normal short links cannot be exhausted");
         }
+        if (remainingTimes.get() != 0) {
+            throw new IllegalStateException("blind-box can be exhausted only when remaining times are zero");
+        }
         this.status = LinkStatus.EXHAUSTED;
     }
 

@@ -11,6 +11,7 @@ import com.example.shortlink.repository.InMemoryShortLinkRepository;
 import com.example.shortlink.validator.ChannelNormalizer;
 import com.example.shortlink.validator.ShortCodeValidator;
 import com.example.shortlink.validator.UrlValidator;
+import com.example.shortlink.exception.ShortCodeGenerationException;
 import org.junit.jupiter.api.Test;
 
 import java.security.SecureRandom;
@@ -29,6 +30,7 @@ import java.util.concurrent.atomic.AtomicInteger;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotEquals;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 class ShortLinkServiceImplTest {
@@ -105,6 +107,38 @@ class ShortLinkServiceImplTest {
     }
 
     @Test
+    void shouldKeepNormalResolveCountAccurateUnderConcurrency() throws Exception {
+        InMemoryShortLinkRepository repository = new InMemoryShortLinkRepository();
+        ShortLinkService service = createService(repository, new SequenceGenerator("abc123"));
+        String shortCode = service.createNormalLink(
+                request("https://example.com/concurrent-resolve", "wechat"))
+                .shortCode();
+        int taskCount = 100;
+        CountDownLatch start = new CountDownLatch(1);
+        ExecutorService executor = Executors.newFixedThreadPool(20);
+
+        try {
+            List<Future<?>> futures = new ArrayList<>();
+            for (int index = 0; index < taskCount; index++) {
+                futures.add(executor.submit(() -> {
+                    start.await();
+                    service.resolve(shortCode);
+                    return null;
+                }));
+            }
+            start.countDown();
+            for (Future<?> future : futures) {
+                future.get();
+            }
+
+            assertEquals(taskCount,
+                    repository.findByShortCode(shortCode).orElseThrow().getResolveCount().get());
+        } finally {
+            executor.shutdownNow();
+        }
+    }
+
+    @Test
     void shouldRetryWhenGeneratedShortCodeCollides() {
         InMemoryShortLinkRepository repository = new InMemoryShortLinkRepository();
         repository.saveIfAbsent("abc123", ShortLink.normal(
@@ -120,6 +154,23 @@ class ShortLinkServiceImplTest {
 
         assertEquals("def456", response.shortCode());
         assertEquals(2, repository.findAll().size());
+    }
+
+    @Test
+    void shouldFailAfterTenShortCodeCollisions() {
+        InMemoryShortLinkRepository repository = new InMemoryShortLinkRepository();
+        repository.saveIfAbsent("abc123", ShortLink.normal(
+                "abc123",
+                "https://example.com/existing",
+                "wechat",
+                LocalDateTime.now(FIXED_CLOCK)));
+        SequenceGenerator generator = new SequenceGenerator("abc123");
+        ShortLinkService service = createService(repository, generator);
+
+        assertThrows(ShortCodeGenerationException.class, () -> service.createNormalLink(
+                request("https://example.com/collision-limit", "wechat")));
+        assertEquals(10, generator.calls());
+        assertEquals(1, repository.findAll().size());
     }
 
     @Test

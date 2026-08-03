@@ -15,7 +15,7 @@ public class ShortLinkProperties {
     public static final int MAX_CODE_LENGTH = 8;
 
     @NotBlank
-    private String domain = "http://localhost:8080";
+    private String domain = "http://localhost:8090";
 
     @Min(value = MIN_CODE_LENGTH, message = "short-link.code-length must be at least 6")
     @Max(value = MAX_CODE_LENGTH, message = "short-link.code-length must be at most 8")

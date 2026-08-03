@@ -54,4 +54,16 @@ class ShortLinkTest {
         assertEquals(5, link.getRemainingTimes().get());
         assertEquals(LinkType.BLIND_BOX, link.getType());
     }
+
+    @Test
+    void shouldRejectExhaustedStatusBeforeRemainingTimesReachZero() {
+        ShortLink link = ShortLink.blindBox(
+                "abc1234",
+                List.of("https://example.com/one", "https://example.com/two"),
+                null,
+                LocalDateTime.now(),
+                1);
+
+        assertThrows(IllegalStateException.class, link::markExhausted);
+    }
 }

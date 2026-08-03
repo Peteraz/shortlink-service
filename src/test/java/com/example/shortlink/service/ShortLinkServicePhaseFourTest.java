@@ -101,6 +101,11 @@ class ShortLinkServicePhaseFourTest {
                 .map(ShortLinkResponse::shortCode)
                 .toList());
 
+        PageResponse<ShortLinkResponse> emptyPage = service.query(
+                new ShortLinkQuery(null, null, null, null, 2, 2));
+        assertEquals(2, emptyPage.totalPages());
+        assertEquals(0, emptyPage.content().size());
+
         PageResponse<ShortLinkResponse> channelPage = service.query(
                 new ShortLinkQuery(null, "alpha", null, null, 0, 20));
         assertEquals(2, channelPage.totalElements());

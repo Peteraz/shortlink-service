@@ -102,6 +102,15 @@ class ShortLinkControllerTest {
     }
 
     @Test
+    void shouldReturnBadRequestForMalformedJson() throws Exception {
+        mockMvc.perform(post("/api/v1/short-links")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"originalUrl\":"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value("INVALID_ARGUMENT"));
+    }
+
+    @Test
     void shouldRedirectNormalShortLinkAndIncrementResolveCount() throws Exception {
         String response = mockMvc.perform(post("/api/v1/short-links")
                         .contentType(MediaType.APPLICATION_JSON)
