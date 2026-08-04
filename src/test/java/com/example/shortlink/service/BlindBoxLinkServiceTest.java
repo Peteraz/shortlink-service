@@ -162,7 +162,7 @@ class BlindBoxLinkServiceTest {
         ResolveResult lastResult = service.resolve(shortCode);
 
         assertEquals(0, lastResult.getRemainingTimes());
-        assertEquals(LinkStatus.EXHAUSTED, lastResult.getStatus());
+        assertEquals(LinkStatus.BROKEN, lastResult.getStatus());
         assertEquals(3, lastResult.getResolveCount());
         assertThrows(BlindBoxExhaustedException.class, () -> service.resolve(shortCode));
 
@@ -222,7 +222,7 @@ class BlindBoxLinkServiceTest {
             assertEquals(0, storedLink.getRemainingTimes().get());
             assertEquals(0, minimumObservedRemaining.get());
             assertEquals(validTimes, storedLink.getResolveCount().get());
-            assertEquals(LinkStatus.EXHAUSTED, storedLink.getStatus());
+            assertEquals(LinkStatus.BROKEN, storedLink.getStatus());
         } finally {
             executor.shutdownNow();
         }

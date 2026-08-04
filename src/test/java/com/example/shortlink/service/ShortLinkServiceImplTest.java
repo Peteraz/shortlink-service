@@ -174,14 +174,14 @@ class ShortLinkServiceImplTest {
     }
 
     @Test
-    void shouldUseSixCharactersByDefault() {
+    void shouldUseSevenCharactersByDefault() {
         ShortLinkProperties properties = new ShortLinkProperties();
         Base62ShortCodeGenerator generator = new Base62ShortCodeGenerator(
                 new SecureRandom(), properties.getCodeLength());
 
         String code = generator.generate();
 
-        assertEquals(6, code.length());
+        assertEquals(7, code.length());
         assertTrue(code.chars().allMatch(character ->
                 Base62ShortCodeGenerator.BASE62_CHARACTERS.indexOf(character) >= 0));
     }

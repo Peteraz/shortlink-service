@@ -12,7 +12,7 @@ import org.springframework.web.bind.annotation.RestController;
 import java.net.URI;
 
 @RestController
-@RequestMapping("/api/v1/redirect")
+@RequestMapping({"/s", "/api/v1/redirect/s"})
 public class RedirectController {
 
     /**
@@ -27,7 +27,7 @@ public class RedirectController {
     /**
      * Controller 只负责把 Service 的解析结果转换为 302 和 Location。
      */
-    @GetMapping("/s/{shortCode}")
+    @GetMapping("/{shortCode}")
     public ResponseEntity<Void> redirect(@PathVariable String shortCode) {
         ResolveResult result = shortLinkService.resolve(shortCode);
         return ResponseEntity.status(HttpStatus.FOUND)

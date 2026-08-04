@@ -6,6 +6,8 @@ import org.slf4j.LoggerFactory;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.http.converter.HttpMessageNotReadableException;
+import org.springframework.web.HttpMediaTypeNotSupportedException;
+import org.springframework.web.HttpRequestMethodNotSupportedException;
 import org.springframework.web.bind.MethodArgumentNotValidException;
 import org.springframework.web.bind.MissingServletRequestParameterException;
 import org.springframework.web.method.annotation.MethodArgumentTypeMismatchException;
@@ -49,6 +51,20 @@ public class GlobalExceptionHandler {
         String message = exception.getParameterName() + " must be provided";
         return ResponseEntity.status(HttpStatus.BAD_REQUEST)
                 .body(new ApiResponse<>("INVALID_ARGUMENT", message, null, java.time.LocalDateTime.now()));
+    }
+
+    @ExceptionHandler(HttpRequestMethodNotSupportedException.class)
+    public ResponseEntity<ApiResponse<Void>> handleMethodNotSupported(HttpRequestMethodNotSupportedException exception) {
+        return ResponseEntity.status(HttpStatus.METHOD_NOT_ALLOWED)
+                .body(new ApiResponse<>("METHOD_NOT_ALLOWED", "HTTP method is not supported", null,
+                        java.time.LocalDateTime.now()));
+    }
+
+    @ExceptionHandler(HttpMediaTypeNotSupportedException.class)
+    public ResponseEntity<ApiResponse<Void>> handleMediaTypeNotSupported(HttpMediaTypeNotSupportedException exception) {
+        return ResponseEntity.status(HttpStatus.UNSUPPORTED_MEDIA_TYPE)
+                .body(new ApiResponse<>("UNSUPPORTED_MEDIA_TYPE", "Content-Type is not supported", null,
+                        java.time.LocalDateTime.now()));
     }
 
     @ExceptionHandler(BusinessException.class)

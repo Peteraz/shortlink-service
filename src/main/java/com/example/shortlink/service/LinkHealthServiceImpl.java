@@ -32,8 +32,7 @@ public class LinkHealthServiceImpl implements LinkHealthService {
     /**
      * 自动断链时写入的统一原因。
      */
-    private static final String AUTOMATIC_BROKEN_REASON =
-            "automatic health check: all original URLs are unreachable";
+    private static final String AUTOMATIC_BROKEN_REASON = "automatic health check: all original URLs are unreachable";
 
     /**
      * 短链内存仓储。
@@ -85,32 +84,37 @@ public class LinkHealthServiceImpl implements LinkHealthService {
     }
 
     /**
-     * 去重后将每个短码提交到专用线程池，单条异常转换为该条失败结果。
+     * 批量检测多个短码。
+     *
+     * <p>方法会先校验并去重短码，再将每个短码提交到专用线程池。
+     * 单个短码检测失败时，只返回该短码的失败结果，不影响同一批次中的其他短码。</p>
      */
     @Override
     public List<HealthCheckResponse> batchHealthCheck(BatchHealthCheckRequest request) {
         Objects.requireNonNull(request, "request must not be null");
+
+        // 校验短码格式、去重，并保留短码第一次出现时的顺序。
         List<String> shortCodes = normalizeBatchShortCodes(request.getShortCodes());
         List<CompletableFuture<HealthCheckResponse>> futures = new ArrayList<>(shortCodes.size());
 
         for (String shortCode : shortCodes) {
             try {
+                // 为每个短码提交一个独立的异步检测任务。
                 futures.add(CompletableFuture.supplyAsync(
-                        () -> safeBatchCheck(shortCode, request.isMarkBroken()),
-                        healthCheckExecutor));
+                        () -> safeBatchCheck(shortCode, request.isMarkBroken()), healthCheckExecutor));
             } catch (RuntimeException exception) {
-                futures.add(CompletableFuture.completedFuture(
-                        failureResult(shortCode, "health check task could not be scheduled")));
+                // 任务提交失败时，仅记录当前短码失败，继续处理其他短码。
+                futures.add(CompletableFuture.completedFuture(failureResult(shortCode, "health check task could not be scheduled")));
             }
         }
 
+        // 按短码顺序等待任务完成，保证返回结果的顺序稳定。
         List<HealthCheckResponse> results = new ArrayList<>(futures.size());
         for (int index = 0; index < futures.size(); index++) {
             String shortCode = shortCodes.get(index);
+            // 任务执行异常转换为当前短码的失败结果，避免中断整个批次。
             results.add(futures.get(index)
-                    .handle((result, exception) -> exception == null
-                            ? result
-                            : failureResult(shortCode, "health check task failed"))
+                    .handle((result, exception) -> exception == null ? result : failureResult(shortCode, "health check task failed"))
                     .join());
         }
         return List.copyOf(results);
@@ -133,12 +137,15 @@ public class LinkHealthServiceImpl implements LinkHealthService {
 
     private HealthCheckResponse checkLink(ShortLink shortLink, boolean markBroken) {
         // 普通短链只有一个 URL；盲盒检测全部候选，任一可达即可判定整体可达。
-        List<UrlHealthResult> urlResults = shortLink.getOriginalUrls().stream().map(this::safeCheck).toList();
+        List<SafeCheckResult> checkResults = shortLink.getOriginalUrls().stream().map(this::safeCheck).toList();
+        List<UrlHealthResult> urlResults = checkResults.stream().map(SafeCheckResult::result).toList();
         boolean reachable = urlResults.stream().anyMatch(UrlHealthResult::isReachable);
+        boolean checkerFailed = checkResults.stream().anyMatch(SafeCheckResult::checkerFailed);
         LocalDateTime checkedAt = LocalDateTime.now(clock);
         shortLink.markCheckedAt(checkedAt);
 
-        boolean markedBroken = markBroken && !reachable && linkStatusPolicy.markBrokenIfAllowed(shortLink, AUTOMATIC_BROKEN_REASON);
+        boolean markedBroken = markBroken && !reachable && !checkerFailed
+                && linkStatusPolicy.markBrokenIfAllowed(shortLink, AUTOMATIC_BROKEN_REASON);
         return new HealthCheckResponse(
                 shortLink.getShortCode(),
                 reachable,
@@ -149,17 +156,31 @@ public class LinkHealthServiceImpl implements LinkHealthService {
                 urlResults);
     }
 
-    private UrlHealthResult safeCheck(String url) {
+    private SafeCheckResult safeCheck(String url) {
         // LinkHealthChecker 负责网络异常转结果；这里再兜底隔离实现异常。
         long startedAt = System.nanoTime();
         try {
-            return linkHealthChecker.check(url);
+            return new SafeCheckResult(linkHealthChecker.check(url), false);
         } catch (RuntimeException exception) {
             long elapsedMillis = (System.nanoTime() - startedAt) / 1_000_000;
-            return new UrlHealthResult(url, false, null, "health check failed", elapsedMillis);
+            return new SafeCheckResult(
+                    new UrlHealthResult(url, false, null, "health check failed", elapsedMillis), true);
         }
     }
 
+    /**
+     * 保留检测结果，同时标识检测器自身是否发生异常。
+     * 检测器失败不等同于目标 URL 不可达，不能据此自动断链。
+     */
+    private record SafeCheckResult(UrlHealthResult result, boolean checkerFailed) {
+    }
+
+    /**
+     * 为多个 URL 的检测结果选择一个代表性的 HTTP 状态码。
+     *
+     * <p>优先返回第一个可达 URL 的状态码；如果没有可达 URL，
+     * 则返回第一个存在的状态码；如果所有请求都没有得到 HTTP 响应，返回 null。</p>
+     */
     private Integer selectOverallStatus(List<UrlHealthResult> urlResults) {
         return urlResults.stream()
                 .filter(result -> result.isReachable() && result.getHttpStatus() != null)
@@ -188,9 +209,7 @@ public class LinkHealthServiceImpl implements LinkHealthService {
             throw new BusinessException("INVALID_BATCH_SHORT_CODES", "shortCodes must not be empty");
         }
         if (requestedShortCodes.size() > MAX_BATCH_SIZE) {
-            throw new BusinessException(
-                    "INVALID_BATCH_SHORT_CODES",
-                    "shortCodes must not contain more than " + MAX_BATCH_SIZE + " items");
+            throw new BusinessException("INVALID_BATCH_SHORT_CODES", "shortCodes must not contain more than " + MAX_BATCH_SIZE + " items");
         }
 
         Set<String> uniqueShortCodes = new LinkedHashSet<>();

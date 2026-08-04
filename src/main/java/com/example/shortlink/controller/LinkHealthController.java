@@ -4,13 +4,7 @@ import com.example.shortlink.dto.request.BatchHealthCheckRequest;
 import com.example.shortlink.dto.response.ApiResponse;
 import com.example.shortlink.dto.response.HealthCheckResponse;
 import com.example.shortlink.service.LinkHealthService;
-import jakarta.validation.Valid;
-import org.springframework.web.bind.annotation.PathVariable;
-import org.springframework.web.bind.annotation.PostMapping;
-import org.springframework.web.bind.annotation.RequestBody;
-import org.springframework.web.bind.annotation.RequestMapping;
-import org.springframework.web.bind.annotation.RequestParam;
-import org.springframework.web.bind.annotation.RestController;
+import org.springframework.web.bind.annotation.*;
 
 import java.util.List;
 
@@ -28,7 +22,7 @@ public class LinkHealthController {
     }
 
     /**
-     * 单条检测的状态变更由 Service 决定，Controller 不操作领域状态。
+     * 单个短码的可达性检查，markBroken可选是否自动转为BROKEN状态。
      */
     @PostMapping("/health-check/{shortCode}")
     public ApiResponse<HealthCheckResponse> healthCheck(@PathVariable String shortCode, @RequestParam(defaultValue = "false") boolean markBroken) {
@@ -36,10 +30,10 @@ public class LinkHealthController {
     }
 
     /**
-     * 批量请求只负责接收校验后的参数，线程池由 Service 管理。
+     * 批量短码的可达性检查，markBroken可选是否自动转为BROKEN状态。
      */
     @PostMapping("/batch-health-check")
-    public ApiResponse<List<HealthCheckResponse>> batchHealthCheck(@Valid @RequestBody BatchHealthCheckRequest request) {
+    public ApiResponse<List<HealthCheckResponse>> batchHealthCheck(@RequestBody BatchHealthCheckRequest request) {
         return ApiResponse.success(linkHealthService.batchHealthCheck(request));
     }
 }

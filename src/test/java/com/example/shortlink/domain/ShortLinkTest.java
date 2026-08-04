@@ -56,7 +56,7 @@ class ShortLinkTest {
     }
 
     @Test
-    void shouldRejectExhaustedStatusBeforeRemainingTimesReachZero() {
+    void shouldRejectBrokenByExhaustionBeforeRemainingTimesReachZero() {
         ShortLink link = ShortLink.blindBox(
                 "abc1234",
                 List.of("https://example.com/one", "https://example.com/two"),
@@ -64,6 +64,6 @@ class ShortLinkTest {
                 LocalDateTime.now(),
                 1);
 
-        assertThrows(IllegalStateException.class, link::markExhausted);
+        assertThrows(IllegalStateException.class, link::markBrokenByExhaustion);
     }
 }

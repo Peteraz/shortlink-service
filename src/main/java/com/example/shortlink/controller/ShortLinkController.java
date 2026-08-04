@@ -8,13 +8,10 @@ import com.example.shortlink.dto.response.ApiResponse;
 import com.example.shortlink.dto.response.PageResponse;
 import com.example.shortlink.dto.response.ResolveResponse;
 import com.example.shortlink.dto.response.ShortLinkResponse;
-import com.example.shortlink.config.ShortLinkProperties;
 import com.example.shortlink.domain.LinkStatus;
 import com.example.shortlink.domain.LinkType;
 import com.example.shortlink.mapper.ShortLinkMapper;
 import com.example.shortlink.service.ShortLinkService;
-import jakarta.validation.Valid;
-import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PatchMapping;
@@ -37,11 +34,6 @@ public class ShortLinkController {
      */
     private final ShortLinkMapper shortLinkMapper;
 
-    public ShortLinkController(ShortLinkService shortLinkService) {
-        this(shortLinkService, new ShortLinkMapper(new ShortLinkProperties()));
-    }
-
-    @Autowired
     public ShortLinkController(ShortLinkService shortLinkService, ShortLinkMapper shortLinkMapper) {
         this.shortLinkService = shortLinkService;
         this.shortLinkMapper = shortLinkMapper;
@@ -59,7 +51,7 @@ public class ShortLinkController {
      * 创建盲盒短链接
      */
     @PostMapping("/blind-box")
-    public ApiResponse<ShortLinkResponse> createBlindBoxLink(@Valid @RequestBody CreateBlindBoxLinkRequest request) {
+    public ApiResponse<ShortLinkResponse> createBlindBoxLink(@RequestBody CreateBlindBoxLinkRequest request) {
         return ApiResponse.success(shortLinkService.createBlindBoxLink(request));
     }
 
@@ -72,7 +64,7 @@ public class ShortLinkController {
     }
 
     /**
-     * 解析详情会执行真实解析，因此普通计数增加、盲盒次数消耗。
+     * 根据短码解析详情，普通短码计数增加、盲盒短码次数消耗。
      */
     @GetMapping("/resolve/{shortCode}")
     public ApiResponse<ResolveResponse> resolve(@PathVariable String shortCode) {
@@ -83,7 +75,7 @@ public class ShortLinkController {
      * 断链原因由请求校验
      */
     @PatchMapping("/broken/{shortCode}")
-    public ApiResponse<ShortLinkResponse> markBroken(@PathVariable String shortCode, @Valid @RequestBody MarkBrokenRequest request) {
+    public ApiResponse<ShortLinkResponse> markBroken(@PathVariable String shortCode, @RequestBody MarkBrokenRequest request) {
         return ApiResponse.success(shortLinkService.markBroken(shortCode, request.getReason()));
     }
 

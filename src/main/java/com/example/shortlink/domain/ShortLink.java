@@ -3,8 +3,10 @@ package com.example.shortlink.domain;
 import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Objects;
+import java.util.concurrent.locks.ReentrantLock;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicLong;
+import java.util.function.Supplier;
 
 /**
  * 普通短链和盲盒短链共用的内存领域对象。
@@ -59,6 +61,10 @@ public final class ShortLink {
      * 最近一次可达性检测时间。
      */
     private volatile LocalDateTime lastCheckedAt;
+    /**
+     * 串行化同一条短链的状态检查和状态变更，避免解析与断链标记之间出现检查后失效的窗口。
+     */
+    private final ReentrantLock stateLock = new ReentrantLock();
 
     private ShortLink(
             String shortCode,
@@ -142,21 +148,34 @@ public final class ShortLink {
     }
 
     /**
+     * 在当前短链的状态锁内执行操作。
+     *
+     * <p>解析和断链标记必须使用同一把锁，才能保证状态检查与后续动作不可被另一方插入。</p>
+     */
+    public <T> T withStateLock(Supplier<T> action) {
+        Objects.requireNonNull(action, "action must not be null");
+        stateLock.lock();
+        try {
+            return action.get();
+        } finally {
+            stateLock.unlock();
+        }
+    }
+
+    /**
      * 尝试使用一次盲盒解析次数。
      *
-     * <p>返回 true 表示本次请求成功获得解析资格；返回 false 表示次数已经用完。
-     * 最后一次次数使用成功后，会把短链状态改为 EXHAUSTED。</p>
+     * <p>该方法只由盲盒解析流程调用。返回 true 表示本次请求成功获得解析资格；返回 false 表示次数已经用完。
+     * 最后一次次数使用成功后，会把短链自动标记为 BROKEN。</p>
      */
     public boolean tryConsume() {
-        if (remainingTimes == null) {
-            throw new IllegalStateException("normal short links do not have remaining times");
-        }
-
-        boolean consumed = tryConsume(remainingTimes);
-        if (consumed && remainingTimes.get() == 0) {
-            markExhausted();
-        }
-        return consumed;
+        return withStateLock(() -> {
+            boolean consumed = tryConsume(remainingTimes);
+            if (consumed && remainingTimes.get() == 0) {
+                markBrokenByExhaustion();
+            }
+            return consumed;
+        });
     }
 
     /**
@@ -189,25 +208,42 @@ public final class ShortLink {
      * 只记录断链原因和状态，是否允许该状态迁移由 LinkStatusPolicy 决定。
      */
     public void markBroken(String reason) {
-        this.brokenReason = reason;
-        this.status = LinkStatus.BROKEN;
+        withStateLock(() -> {
+            this.brokenReason = reason;
+            this.status = LinkStatus.BROKEN;
+            return null;
+        });
     }
 
     /**
-     * 只有剩余次数已经原子扣减到 0 时，才允许进入 EXHAUSTED。
+     * 盲盒最后一次解析次数用完后，按照需求自动标记为断链。
      */
-    public void markExhausted() {
-        if (type != LinkType.BLIND_BOX) {
-            throw new IllegalStateException("normal short links cannot be exhausted");
-        }
-        if (remainingTimes.get() != 0) {
-            throw new IllegalStateException("blind-box can be exhausted only when remaining times are zero");
-        }
-        this.status = LinkStatus.EXHAUSTED;
+    public void markBrokenByExhaustion() {
+        withStateLock(() -> {
+            if (type != LinkType.BLIND_BOX) {
+                throw new IllegalStateException("normal short links cannot be marked broken by exhaustion");
+            }
+            if (remainingTimes.get() != 0) {
+                throw new IllegalStateException("blind-box can be marked broken by exhaustion only when remaining times are zero");
+            }
+            this.brokenReason = "blind-box valid times exhausted";
+            this.status = LinkStatus.BROKEN;
+            return null;
+        });
+    }
+
+    /**
+     * 判断盲盒是否已经没有剩余解析次数。
+     */
+    public boolean hasNoRemainingTimes() {
+        return type == LinkType.BLIND_BOX && remainingTimes.get() == 0;
     }
 
     public void markCheckedAt(LocalDateTime checkedAt) {
-        this.lastCheckedAt = Objects.requireNonNull(checkedAt, "checkedAt must not be null");
+        withStateLock(() -> {
+            this.lastCheckedAt = Objects.requireNonNull(checkedAt, "checkedAt must not be null");
+            return null;
+        });
     }
 
     private static List<String> copyAndValidateUrls(List<String> urls) {

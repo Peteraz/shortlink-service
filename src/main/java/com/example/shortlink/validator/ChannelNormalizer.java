@@ -10,6 +10,7 @@ import java.util.regex.Pattern;
 public class ChannelNormalizer {
 
     private static final int MAX_CHANNEL_LENGTH = 64;
+    // 渠道标识只能由一个或多个 Unicode 字母、数字、下划线或连字符组成。
     private static final Pattern CHANNEL_PATTERN = Pattern.compile("[\\p{L}\\p{N}_-]+");
 
     public String normalize(String channel) {

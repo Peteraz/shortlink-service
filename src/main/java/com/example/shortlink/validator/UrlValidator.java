@@ -36,6 +36,11 @@ public class UrlValidator {
         }
     }
 
+    /**
+     * 规范化协议和 host
+     * 例如 HTTPS://User:Pass@Example.COM:8443/path?x=1#top
+     * 规范化 https://User:Pass@example.com:8443/path?x=1#top
+     */
     private String normalizeSchemeAndHost(URI uri) {
         String rawAuthority = uri.getRawAuthority();
         String userInfo = "";
@@ -46,13 +51,14 @@ public class UrlValidator {
             hostAndPort = rawAuthority.substring(userInfoSeparator + 1);
         }
 
-        String normalizedHost = uri.getHost().toLowerCase(Locale.ROOT);
         String normalizedHostAndPort;
         if (hostAndPort.startsWith("[")) {
             int closingBracket = hostAndPort.indexOf(']');
-            normalizedHostAndPort = "[" + normalizedHost + "]"
+            String normalizedIpv6Host = hostAndPort.substring(1, closingBracket).toLowerCase(Locale.ROOT);
+            normalizedHostAndPort = "[" + normalizedIpv6Host + "]"
                     + hostAndPort.substring(closingBracket + 1);
         } else {
+            String normalizedHost = uri.getHost().toLowerCase(Locale.ROOT);
             int portSeparator = hostAndPort.lastIndexOf(':');
             normalizedHostAndPort = portSeparator > 0
                     ? normalizedHost + hostAndPort.substring(portSeparator)

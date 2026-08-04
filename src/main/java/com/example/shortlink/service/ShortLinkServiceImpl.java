@@ -198,29 +198,30 @@ public class ShortLinkServiceImpl implements ShortLinkService {
     }
 
     private ResolveResult resolveNormal(ShortLink shortLink) {
-        // 普通短链只有 ACTIVE 状态可解析，计数使用原子自增。
-        linkStatusPolicy.ensureResolvable(shortLink);
+        return shortLink.withStateLock(() -> {
+            // 状态检查、目标读取和计数更新必须在同一把短链锁内完成。
+            linkStatusPolicy.ensureResolvable(shortLink);
 
-        String targetUrl = shortLink.getOriginalUrls().getFirst();
-        shortLink.getResolveCount().incrementAndGet();
-        return mapper.toResolveResult(shortLink, targetUrl);
+            String targetUrl = shortLink.getOriginalUrls().getFirst();
+            shortLink.getResolveCount().incrementAndGet();
+            return mapper.toResolveResult(shortLink, targetUrl);
+        });
     }
 
     private ResolveResult resolveBlindBox(ShortLink shortLink) {
-        // 盲盒短链只有 ACTIVE 状态可解析，计数使用原子自增。
-        linkStatusPolicy.ensureResolvable(shortLink);
+        return shortLink.withStateLock(() -> {
+            // 状态检查和次数扣减必须在同一把短链锁内完成。
+            linkStatusPolicy.ensureResolvable(shortLink);
 
-        // 尝试扣减一次剩余次数。只有成功扣减的请求，才获得本次解析资格。
-        // 并发请求同时争抢最后一次次数时，只有一个请求能够扣减成功。
-        if (!shortLink.tryConsume()) {
-            shortLink.markExhausted();
-            throw linkStatusPolicy.exhausted(shortLink);
-        }
+            // 只有成功扣减次数的请求，才获得本次解析资格。
+            if (!shortLink.tryConsume()) {
+                throw linkStatusPolicy.exhausted(shortLink);
+            }
 
-        // 次数扣减成功后才选择目标并返回，确保每次成功解析都消耗一次次数。
-        String targetUrl = blindBoxSelector.select(shortLink.getOriginalUrls());
-        shortLink.getResolveCount().incrementAndGet();
-        return mapper.toResolveResult(shortLink, targetUrl);
+            String targetUrl = blindBoxSelector.select(shortLink.getOriginalUrls());
+            shortLink.getResolveCount().incrementAndGet();
+            return mapper.toResolveResult(shortLink, targetUrl);
+        });
     }
 
     /**
@@ -232,16 +233,19 @@ public class ShortLinkServiceImpl implements ShortLinkService {
         String normalizedReason = normalizeBrokenReason(reason);
         ShortLink shortLink = findByShortCode(shortCode);
 
-        if (linkStatusPolicy.isBroken(shortLink)) {
+        return shortLink.withStateLock(() -> {
+            // 已经断链时直接返回第一次标记的结果，保证重复操作幂等。
+            if (linkStatusPolicy.isBroken(shortLink)) {
+                return mapper.toResponse(shortLink);
+            }
+            linkStatusPolicy.ensureCanMarkBroken(shortLink);
+            shortLink.markBroken(normalizedReason);
             return mapper.toResponse(shortLink);
-        }
-        linkStatusPolicy.ensureCanMarkBroken(shortLink);
-        shortLink.markBroken(normalizedReason);
-        return mapper.toResponse(shortLink);
+        });
     }
 
     /**
-     * 在内存快照上过滤、按创建时间倒序排序并返回不可变分页结果。
+     * 分页查询短链列表
      */
     @Override
     public PageResponse<ShortLinkResponse> query(ShortLinkQuery query) {
@@ -251,9 +255,7 @@ public class ShortLinkServiceImpl implements ShortLinkService {
         if (query.getShortCode() != null) {
             shortCodeValidator.validate(query.getShortCode());
         }
-        String normalizedChannel = query.getChannel() == null
-                ? null
-                : channelNormalizer.normalize(query.getChannel());
+        String normalizedChannel = query.getChannel() == null ? null : channelNormalizer.normalize(query.getChannel());
 
         List<ShortLink> matchingLinks = repository.findAll().stream()
                 .filter(shortLink -> query.getShortCode() == null
@@ -273,9 +275,7 @@ public class ShortLinkServiceImpl implements ShortLinkService {
         long offset = (long) page * size;
         int fromIndex = Math.toIntExact(Math.min(offset, totalElements));
         int toIndex = Math.toIntExact(Math.min(offset + size, totalElements));
-        List<ShortLinkResponse> content = matchingLinks.subList(fromIndex, toIndex).stream()
-                .map(mapper::toResponse)
-                .toList();
+        List<ShortLinkResponse> content = matchingLinks.subList(fromIndex, toIndex).stream().map(mapper::toResponse).toList();
         int totalPages = Math.toIntExact((totalElements + size - 1) / size);
 
         return new PageResponse<>(content, page, size, totalElements, totalPages);
@@ -301,10 +301,8 @@ public class ShortLinkServiceImpl implements ShortLinkService {
     /**
      * 盲盒每次创建都生成新短码，但仍使用相同的碰撞重试上限。
      */
-    private String createAndStoreBlindBox(
-            List<String> normalizedUrls,
-            String normalizedChannel,
-            int validTimes) {
+    private String createAndStoreBlindBox(List<String> normalizedUrls, String normalizedChannel, int validTimes) {
+        // 最多尝试MAX_GENERATION_ATTEMPTS次生唯一短码，避免无限重试
         for (int attempt = 1; attempt <= MAX_GENERATION_ATTEMPTS; attempt++) {
             String candidateCode = shortCodeGenerator.generate();
             ShortLink shortLink = ShortLink.blindBox(
@@ -336,6 +334,7 @@ public class ShortLinkServiceImpl implements ShortLinkService {
         List<String> normalizedUrls = new ArrayList<>(originalUrls.size());
         for (String originalUrl : originalUrls) {
             String normalizedUrl = urlValidator.validateAndNormalize(originalUrl);
+            // 存在重复url时抛出异常,避免盲盒短链中出现重复的原始url,保证每个原始url都是唯一的
             if (!seenUrls.add(normalizedUrl)) {
                 throw new BlindBoxDuplicateUrlException("blind-box original URLs must not contain duplicates");
             }

@@ -8,9 +8,5 @@ public enum LinkStatus {
     /**
      * 已主动或自动标记断链的状态。
      */
-    BROKEN,
-    /**
-     * 盲盒剩余有效次数已耗尽的状态。
-     */
-    EXHAUSTED
+    BROKEN
 }

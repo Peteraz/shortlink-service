@@ -60,6 +60,24 @@ class LinkHealthServicePhaseFiveTest {
     }
 
     @Test
+    void shouldNotMarkLinkBrokenWhenHealthCheckerFailsInternally() {
+        InMemoryShortLinkRepository repository = new InMemoryShortLinkRepository();
+        repository.saveIfAbsent("abc123", ShortLink.normal(
+                "abc123", "https://example.com/error", "wechat",
+                FIXED_CLOCK.instant().atZone(ZoneOffset.UTC).toLocalDateTime()));
+        LinkHealthService service = createService(repository, url -> {
+            throw new IllegalStateException("test failure");
+        });
+
+        HealthCheckResponse response = service.healthCheck("abc123", true);
+
+        assertFalse(response.isReachable());
+        assertFalse(response.isMarkedBroken());
+        assertEquals("health check failed", response.getUrlResults().getFirst().getMessage());
+        assertEquals(LinkStatus.ACTIVE, repository.findByShortCode("abc123").orElseThrow().getStatus());
+    }
+
+    @Test
     void shouldNotMarkBlindBoxWhenAtLeastOneUrlIsReachable() {
         InMemoryShortLinkRepository repository = new InMemoryShortLinkRepository();
         repository.saveIfAbsent("abc123", ShortLink.blindBox(
@@ -99,7 +117,7 @@ class LinkHealthServicePhaseFiveTest {
     }
 
     @Test
-    void shouldLeaveExhaustedBlindBoxUnchanged() {
+    void shouldLeaveExhaustedBlindBoxBrokenAndUnchanged() {
         InMemoryShortLinkRepository repository = new InMemoryShortLinkRepository();
         ShortLink link = ShortLink.blindBox(
                 "abc123",
@@ -116,7 +134,7 @@ class LinkHealthServicePhaseFiveTest {
 
         assertFalse(response.isReachable());
         assertFalse(response.isMarkedBroken());
-        assertEquals(LinkStatus.EXHAUSTED, link.getStatus());
+        assertEquals(LinkStatus.BROKEN, link.getStatus());
         assertNotNull(link.getLastCheckedAt());
     }
 

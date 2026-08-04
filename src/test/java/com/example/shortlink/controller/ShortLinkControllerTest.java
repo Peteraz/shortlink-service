@@ -32,8 +32,24 @@ class ShortLinkControllerTest {
     }
 
     @Test
+    void shouldReturnMethodNotAllowedForUnsupportedMethod() throws Exception {
+        mockMvc.perform(get("/api/v1/short-links/normal"))
+                .andExpect(status().isMethodNotAllowed())
+                .andExpect(jsonPath("$.code").value("METHOD_NOT_ALLOWED"));
+    }
+
+    @Test
+    void shouldReturnUnsupportedMediaTypeForUnsupportedContentType() throws Exception {
+        mockMvc.perform(post("/api/v1/short-links/normal")
+                        .contentType(MediaType.TEXT_PLAIN)
+                        .content("originalUrl=https://example.com/article/1001"))
+                .andExpect(status().isUnsupportedMediaType())
+                .andExpect(jsonPath("$.code").value("UNSUPPORTED_MEDIA_TYPE"));
+    }
+
+    @Test
     void shouldCreateAndQueryNormalShortLink() throws Exception {
-        String response = mockMvc.perform(post("/api/v1/short-links")
+        String response = mockMvc.perform(post("/api/v1/short-links/normal")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("""
                                 {
@@ -42,7 +58,7 @@ class ShortLinkControllerTest {
                                 }
                                 """))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.data.shortCode").value(hasLength(6)))
+                .andExpect(jsonPath("$.data.shortCode").value(hasLength(7)))
                 .andExpect(jsonPath("$.data.channel").value("wechat"))
                 .andExpect(jsonPath("$.data.type").value("NORMAL"))
                 .andExpect(jsonPath("$.data.originalUrls[0]")
@@ -53,9 +69,10 @@ class ShortLinkControllerTest {
 
         String shortCode = JsonPath.read(response, "$.data.shortCode");
 
-        mockMvc.perform(get("/api/v1/short-links/{shortCode}", shortCode))
+        mockMvc.perform(get("/api/v1/short-links/query/{shortCode}", shortCode))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.data.shortCode").value(shortCode));
+                .andExpect(jsonPath("$.data.shortCode").value(shortCode))
+                .andExpect(jsonPath("$.data.shortUrl").value("http://localhost:8090/s/" + shortCode));
     }
 
     @Test
@@ -81,20 +98,20 @@ class ShortLinkControllerTest {
 
     @Test
     void shouldDefaultBlankChannelAndRejectInvalidShortCode() throws Exception {
-        mockMvc.perform(post("/api/v1/short-links")
+        mockMvc.perform(post("/api/v1/short-links/normal")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("{\"originalUrl\":\"https://example.com/article/1002\",\"channel\":\"   \"}"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.data.channel").value("default"));
 
-        mockMvc.perform(get("/api/v1/short-links/abc123456"))
+        mockMvc.perform(get("/api/v1/short-links/query/abc123456"))
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.code").value("INVALID_SHORT_CODE"));
     }
 
     @Test
     void shouldRejectInvalidUrl() throws Exception {
-        mockMvc.perform(post("/api/v1/short-links")
+        mockMvc.perform(post("/api/v1/short-links/normal")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("{\"originalUrl\":\"ftp://example.com/file\",\"channel\":\"wechat\"}"))
                 .andExpect(status().isBadRequest())
@@ -103,7 +120,7 @@ class ShortLinkControllerTest {
 
     @Test
     void shouldReturnBadRequestForMalformedJson() throws Exception {
-        mockMvc.perform(post("/api/v1/short-links")
+        mockMvc.perform(post("/api/v1/short-links/normal")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("{\"originalUrl\":"))
                 .andExpect(status().isBadRequest())
@@ -112,7 +129,7 @@ class ShortLinkControllerTest {
 
     @Test
     void shouldRedirectNormalShortLinkAndIncrementResolveCount() throws Exception {
-        String response = mockMvc.perform(post("/api/v1/short-links")
+        String response = mockMvc.perform(post("/api/v1/short-links/normal")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("{\"originalUrl\":\"https://example.com/redirect-phase4\",\"channel\":\"phase4redirect\"}"))
                 .andExpect(status().isOk())
@@ -125,7 +142,7 @@ class ShortLinkControllerTest {
                 .andExpect(status().isFound())
                 .andExpect(header().string("Location", "https://example.com/redirect-phase4"));
 
-        mockMvc.perform(get("/api/v1/short-links/{shortCode}", shortCode))
+        mockMvc.perform(get("/api/v1/short-links/query/{shortCode}", shortCode))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.data.resolveCount").value(1));
     }
@@ -150,12 +167,12 @@ class ShortLinkControllerTest {
                 .getContentAsString();
         String shortCode = JsonPath.read(response, "$.data.shortCode");
 
-        mockMvc.perform(get("/api/v1/short-links/{shortCode}", shortCode))
+        mockMvc.perform(get("/api/v1/short-links/query/{shortCode}", shortCode))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.data.resolveCount").value(0))
                 .andExpect(jsonPath("$.data.remainingTimes").value(3));
 
-        mockMvc.perform(get("/api/v1/short-links/{shortCode}/resolve", shortCode))
+        mockMvc.perform(get("/api/v1/short-links/resolve/{shortCode}", shortCode))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.data.targetUrl").isString())
                 .andExpect(jsonPath("$.data.resolveCount").value(1))
@@ -164,7 +181,7 @@ class ShortLinkControllerTest {
 
     @Test
     void shouldMarkBrokenIdempotentlyAndReturnGoneWhenRedirecting() throws Exception {
-        String response = mockMvc.perform(post("/api/v1/short-links")
+        String response = mockMvc.perform(post("/api/v1/short-links/normal")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("{\"originalUrl\":\"https://example.com/broken-phase4\",\"channel\":\"phase4broken\"}"))
                 .andExpect(status().isOk())
@@ -173,14 +190,14 @@ class ShortLinkControllerTest {
                 .getContentAsString();
         String shortCode = JsonPath.read(response, "$.data.shortCode");
 
-        mockMvc.perform(patch("/api/v1/short-links/{shortCode}/broken", shortCode)
+        mockMvc.perform(patch("/api/v1/short-links/broken/{shortCode}", shortCode)
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("{\"reason\":\"  运营人员主动下线  \"}"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.data.status").value("BROKEN"))
                 .andExpect(jsonPath("$.data.brokenReason").value("运营人员主动下线"));
 
-        mockMvc.perform(patch("/api/v1/short-links/{shortCode}/broken", shortCode)
+        mockMvc.perform(patch("/api/v1/short-links/broken/{shortCode}", shortCode)
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("{\"reason\":\"another reason\"}"))
                 .andExpect(status().isOk())
@@ -232,12 +249,12 @@ class ShortLinkControllerTest {
         String first = createNormal("https://example.com/query-first", channel);
         String second = createNormal("https://example.com/query-second", channel);
         createBlindBox(channel);
-        mockMvc.perform(patch("/api/v1/short-links/{shortCode}/broken", second)
+        mockMvc.perform(patch("/api/v1/short-links/broken/{shortCode}", second)
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("{\"reason\":\"offline\"}"))
                 .andExpect(status().isOk());
 
-        String pageResponse = mockMvc.perform(get("/api/v1/short-links")
+        String pageResponse = mockMvc.perform(get("/api/v1/short-links/queryByPage")
                         .param("channel", channel)
                         .param("page", "0")
                         .param("size", "2"))
@@ -252,14 +269,14 @@ class ShortLinkControllerTest {
         String secondCreatedAt = JsonPath.read(pageResponse, "$.data.content[1].createdAt");
         assertTrue(LocalDateTime.parse(firstCreatedAt).compareTo(LocalDateTime.parse(secondCreatedAt)) >= 0);
 
-        mockMvc.perform(get("/api/v1/short-links")
+        mockMvc.perform(get("/api/v1/short-links/queryByPage")
                         .param("channel", channel)
                         .param("status", "BROKEN"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.data.totalElements").value(1))
                 .andExpect(jsonPath("$.data.content[0].shortCode").value(second));
 
-        mockMvc.perform(get("/api/v1/short-links")
+        mockMvc.perform(get("/api/v1/short-links/queryByPage")
                         .param("channel", channel)
                         .param("type", "BLIND_BOX"))
                 .andExpect(status().isOk())
@@ -268,7 +285,7 @@ class ShortLinkControllerTest {
     }
 
     private String createNormal(String originalUrl, String channel) throws Exception {
-        String response = mockMvc.perform(post("/api/v1/short-links")
+        String response = mockMvc.perform(post("/api/v1/short-links/normal")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("{\"originalUrl\":\"" + originalUrl + "\",\"channel\":\"" + channel + "\"}"))
                 .andExpect(status().isOk())

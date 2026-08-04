@@ -15,11 +15,11 @@ import java.util.concurrent.ConcurrentHashMap;
 public class InMemoryShortLinkRepository implements ShortLinkRepository {
 
     /**
-     * 按短码保存短链领域对象的内存索引。
+     * 按短码索引短链对象：key 为 shortCode，value 为 ShortLink。
      */
     private final ConcurrentHashMap<String, ShortLink> linkStore = new ConcurrentHashMap<>();
     /**
-     * 按普通短链业务键保存短码的幂等索引。
+     * 按普通短链业务键索引短码：key 为规范化 URL 和渠道，value 为 shortCode，用于保证创建幂等。
      */
     private final ConcurrentHashMap<String, String> normalUrlIndex = new ConcurrentHashMap<>();
 

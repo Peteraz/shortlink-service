@@ -9,7 +9,9 @@ import java.net.UnknownHostException;
 @Component
 public class DefaultAddressPolicy implements AddressPolicy {
 
-    /** 对外返回的统一安全策略拒绝消息，避免泄露内部网络信息。 */
+    /**
+     * 对外返回的统一安全策略拒绝消息，避免泄露内部网络信息。
+     */
     private static final String BLOCKED_MESSAGE = "request blocked by SSRF security policy";
 
     /**

@@ -23,7 +23,7 @@ public class ShortLinkMapper {
      * 将领域对象快照转换为响应 DTO，并读取原子计数的普通数值。
      */
     public ShortLinkResponse toResponse(ShortLink shortLink) {
-        return new ShortLinkResponse(
+        return shortLink.withStateLock(() -> new ShortLinkResponse(
                 shortLink.getShortCode(),
                 buildShortUrl(shortLink.getShortCode()),
                 shortLink.getType(),
@@ -34,11 +34,11 @@ public class ShortLinkMapper {
                 shortLink.getStatus(),
                 getRemainingTimes(shortLink),
                 shortLink.getBrokenReason(),
-                shortLink.getLastCheckedAt());
+                shortLink.getLastCheckedAt()));
     }
 
     public ResolveResult toResolveResult(ShortLink shortLink, String targetUrl) {
-        return new ResolveResult(
+        return shortLink.withStateLock(() -> new ResolveResult(
                 shortLink.getShortCode(),
                 targetUrl,
                 shortLink.getType(),
@@ -46,7 +46,7 @@ public class ShortLinkMapper {
                 shortLink.getCreatedAt(),
                 shortLink.getResolveCount().get(),
                 getRemainingTimes(shortLink),
-                shortLink.getStatus());
+                shortLink.getStatus()));
     }
 
     /**
@@ -70,11 +70,18 @@ public class ShortLinkMapper {
                 : shortLink.getRemainingTimes().get();
     }
 
+
+    /**
+     * 去除域名末尾的斜杠后，拼接公网跳转路径和短码，避免生成双斜杠。
+     *
+     * <p>例如：{@code http://localhost:8090/} 和 {@code Ab12xY7}
+     * 拼接后得到 {@code http://localhost:8090/s/Ab12xY7}。</p>
+     */
     private String buildShortUrl(String shortCode) {
         String domain = properties.getDomain();
         while (domain.endsWith("/")) {
             domain = domain.substring(0, domain.length() - 1);
         }
-        return domain + "/" + shortCode;
+        return domain + "/s/" + shortCode;
     }
 }

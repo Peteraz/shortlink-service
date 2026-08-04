@@ -26,8 +26,8 @@ public final class LinkStatusPolicy {
     }
 
     public void ensureCanMarkBroken(ShortLink shortLink) {
-        if (shortLink.getStatus() == LinkStatus.EXHAUSTED) {
-            throw new BlindBoxExhaustedException("exhausted short link cannot be marked broken: " + shortLink.getShortCode());
+        if (shortLink.getStatus() != LinkStatus.ACTIVE) {
+            throw failureFor(shortLink);
         }
     }
 
@@ -36,18 +36,21 @@ public final class LinkStatusPolicy {
     }
 
     public boolean markBrokenIfAllowed(ShortLink shortLink, String reason) {
-        // EXHAUSTED 和 BROKEN 都是终态，自动检测只能标记 ACTIVE 链接。
-        if (shortLink.getStatus() != LinkStatus.ACTIVE) {
-            return false;
-        }
-        shortLink.markBroken(reason);
-        return true;
+        return shortLink.withStateLock(() -> {
+            // 断链是终态，自动检测只能标记 ACTIVE 链接。
+            if (shortLink.getStatus() != LinkStatus.ACTIVE) {
+                return false;
+            }
+            shortLink.markBroken(reason);
+            return true;
+        });
     }
 
     private RuntimeException failureFor(ShortLink shortLink) {
         return switch (shortLink.getStatus()) {
-            case BROKEN -> new BrokenLinkException("short link is broken: " + shortLink.getShortCode());
-            case EXHAUSTED -> exhausted(shortLink);
+            case BROKEN -> shortLink.hasNoRemainingTimes()
+                    ? exhausted(shortLink)
+                    : new BrokenLinkException("short link is broken: " + shortLink.getShortCode());
             case ACTIVE -> new IllegalStateException("active status must be resolvable");
         };
     }

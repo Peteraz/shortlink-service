@@ -8,7 +8,6 @@ import com.example.shortlink.dto.request.CreateNormalLinkRequest;
 import com.example.shortlink.dto.request.ShortLinkQuery;
 import com.example.shortlink.dto.response.PageResponse;
 import com.example.shortlink.dto.response.ShortLinkResponse;
-import com.example.shortlink.exception.BlindBoxExhaustedException;
 import com.example.shortlink.exception.BrokenLinkException;
 import com.example.shortlink.exception.BusinessException;
 import com.example.shortlink.generator.ShortCodeGenerator;
@@ -58,7 +57,7 @@ class ShortLinkServicePhaseFourTest {
     }
 
     @Test
-    void shouldNotMarkExhaustedBlindBoxBroken() {
+    void shouldTreatExhaustedBlindBoxAsBroken() {
         InMemoryShortLinkRepository repository = new InMemoryShortLinkRepository();
         ShortLinkService service = createService(repository, new SequenceGenerator("abc123"), FIXED_CLOCK);
         String shortCode = service.createBlindBoxLink(
@@ -66,9 +65,11 @@ class ShortLinkServicePhaseFourTest {
 
         service.resolve(shortCode);
 
-        assertThrows(BlindBoxExhaustedException.class,
-                () -> service.markBroken(shortCode, "too late"));
-        assertEquals(LinkStatus.EXHAUSTED, service.getByShortCode(shortCode).getStatus());
+        ShortLinkResponse response = service.markBroken(shortCode, "too late");
+
+        assertEquals(LinkStatus.BROKEN, response.getStatus());
+        assertEquals("blind-box valid times exhausted", response.getBrokenReason());
+        assertEquals(LinkStatus.BROKEN, service.getByShortCode(shortCode).getStatus());
     }
 
     @Test

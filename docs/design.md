@@ -36,7 +36,9 @@ normalizedUrl + "|" + normalizedChannel
 
 作为业务唯一键。这样相同 URL、相同渠道会返回同一个短码；相同 URL、不同渠道会生成不同短码。业务键通过 `ConcurrentHashMap.computeIfAbsent` 原子计算，避免并发重复创建。
 
-URL 会校验协议、host 和长度，并规范化 scheme、host；渠道会去除首尾空格，未传或空白渠道统一为 `default`。
+URL 会去除首尾空格，并校验为长度不超过 2048、包含 host 的 HTTP/HTTPS URI。规范化时仅将 scheme 和 host 转为小写，IPv6 保留单层方括号；路径、查询参数、片段、用户信息和端口保持原样。渠道未传或空白时统一为 `default`；非空渠道最多 64 个字符，只允许 Unicode 字母、数字、下划线和连字符。
+
+盲盒候选 URL 数量必须在 2 到 100 之间，且规范化后不得重复；`validTimes` 必须在 1 到 1,000,000 之间。
 
 ## 4. 访问计数和盲盒次数
 
@@ -55,9 +57,13 @@ URL 会校验协议、host 和长度，并规范化 scheme、host；渠道会去
 
 不能使用 `get()` 后直接 `decrementAndGet()`，因为检查和扣减之间存在竞态窗口，多个线程可能同时通过检查并造成超发。
 
-只有 CAS 成功后才允许随机选择 URL 和增加访问次数。CAS 成功将剩余次数变为 0 后，状态更新为 `EXHAUSTED`。状态用于展示和快速失败，但盲盒是否允许解析最终以 CAS 结果为准。
+只有 CAS 成功后才允许随机选择 URL 和增加访问次数。CAS 成功将剩余次数变为 0 后，短链自动标记为 `BROKEN`，断链原因记录为盲盒有效次数耗尽；该次已经取得资格的解析仍会成功返回。后续请求会先因 `BROKEN` 状态被拒绝，并根据剩余次数为 0 返回 `BLIND_BOX_EXHAUSTED`。
 
-领域对象禁止在剩余次数大于 0 时直接设置 `EXHAUSTED`，从而保持状态和次数一致。
+领域对象禁止在剩余次数大于 0 时因次数耗尽而标记 `BROKEN`，从而保持状态和次数一致。
+
+### 4.3 单短链状态锁
+
+每个 `ShortLink` 持有一把独立的可重入状态锁，不存在全局锁。解析、盲盒次数消费、主动/自动断链、最近检测时间写入，以及响应 DTO 的可变字段快照读取使用同一把锁。因此，同一条短链不会出现“已检查为 ACTIVE 后被断链、却继续完成解析”或响应字段来自不同状态时刻的情况。健康检测的网络 I/O 在锁外执行，避免慢网络请求长期占用状态锁。
 
 ## 5. 随机选择
 
@@ -67,31 +73,35 @@ Selector 只负责选择，不负责扣减次数，也不修改候选列表。�
 
 ## 6. 内存存储和查询
 
-Repository 使用 `ConcurrentHashMap` 保存短链，并返回集合副本；领域对象中的原始 URL 列表使用不可变副本保存，响应 DTO 不直接暴露领域对象或原子类型。
+Repository 使用 `ConcurrentHashMap` 保存短链，并返回集合副本；领域对象中的原始 URL 列表使用不可变副本保存。Mapper 在单短链状态锁内读取可变字段并构造响应 DTO，因此 API 响应不直接暴露领域对象或原子类型，且状态、次数、断链原因和最近检测时间来自同一快照。
 
 条件查询当前执行内存全量扫描、过滤、排序和分页，复杂度约为 O(n)。这适合笔试和小规模数据，不适合大规模生产数据。
 
+对外请求中的短码必须是 6 到 8 位 Base62 字符。条件查询的 `page` 从 0 开始，`size` 为 1 到 100；主动断链原因去除首尾空格后必须为 1 到 200 个字符。
+
 ## 7. HTTP 跳转和状态
 
-`GET /s/{shortCode}` 和解析详情接口都会执行真实解析。普通短链返回唯一 URL；盲盒先消耗次数，再随机返回 URL；成功解析后访问次数原子增加。
+`GET /s/{shortCode}` 是对外短链地址，`GET /api/v1/redirect/s/{shortCode}` 是兼容跳转入口；两者都会调用解析服务，成功时返回 HTTP 302 和 `Location`。`GET /api/v1/short-links/resolve/{shortCode}` 也会执行真实解析，但以 JSON 返回解析详情。普通短链返回唯一 URL；盲盒先消耗次数，再随机返回 URL；成功解析后访问次数原子增加。
 
 状态规则集中在 `LinkStatusPolicy`：
 
 - `ACTIVE`：允许解析；
 - `BROKEN`：抛出断链异常；
-- `EXHAUSTED`：抛出盲盒次数耗尽异常。
+- 盲盒 `BROKEN` 且剩余次数为 0：抛出盲盒次数耗尽异常；其他 `BROKEN`：抛出断链异常。
 
 异常统一转换为 JSON 响应，断链和次数耗尽使用 HTTP 410 Gone。
+
+短链业务接口的成功响应使用 `ApiResponse`，包含 `code`、`message`、`data` 和 `timestamp`，成功业务码为 `0`。已明确处理的参数或业务校验失败使用 HTTP 400；单条操作中的短码不存在使用 404；不支持的 HTTP Method 使用 405；不支持的 Content-Type 使用 415；短码生成重试耗尽和未预期异常使用 500。批量健康检测中的不存在短码会作为 HTTP 200 响应中的单条失败结果返回。`GET /api/health` 直接返回 `{"status":"UP"}`，不使用 `ApiResponse`。
 
 ## 8. 断链检测
 
 健康检测使用 Spring 管理的单例 Java `HttpClient`。单次请求默认超时 3 秒，连接超时 2 秒；先发 HEAD，收到 405 后降级 GET，GET 使用流式响应并立即关闭，不读取完整响应体。2xx 和 3xx 视为可达，客户端不自动跟随重定向。
 
-健康检测只负责检测 URL，是否自动标记 `BROKEN` 由 Service 决定。普通短链检测一个 URL，盲盒检测全部候选 URL；盲盒只要有一个 URL 可达，整体就视为可达。
+健康检测只负责检测 URL，是否自动标记 `BROKEN` 由 Service 决定。普通短链检测一个 URL，盲盒检测全部候选 URL；盲盒只要有一个 URL 可达，整体就视为可达。`markBroken=true` 时，仅当所有 URL 都不可达、短链仍为 `ACTIVE`，且检测器自身没有抛出内部异常时才自动断链；检测器内部异常会在对应的 `urlResults` 中记录为 `health check failed`，不会把短链误标记为断链。
 
 ## 9. SSRF 防护
 
-主动请求用户提供的 URL 存在 SSRF 风险。请求前首先限制协议为 HTTP/HTTPS，并解析 host。除了检查 `localhost` 字符串，还通过 `InetAddress` 检查解析结果，拒绝回环、私有、链路本地、site-local、组播、未指定地址以及 IPv4-mapped 私有地址。
+主动请求用户提供的 URL 存在 SSRF 风险。请求前首先限制协议为 HTTP/HTTPS，并解析 host。除了检查 `localhost` 字符串，还通过 `InetAddress` 检查解析结果，拒绝回环、链路本地、site-local、组播、未指定地址，以及受限的 IPv4-mapped 地址。受限 IPv4-mapped 地址包括 0/8、10/8、127/8、169.254/16、172.16/12 和 192.168/16。
 
 DNS 解析失败返回不可达结果，不向客户端返回服务器内部网络信息。HttpClient 默认不自动跟随重定向，因此 3xx 只表示原目标服务可达，不会自动访问未经重新校验的重定向目标。
 
@@ -106,7 +116,7 @@ DNS 解析失败返回不可达结果，不向客户端返回服务器内部网�
 - 拒绝策略：`CallerRunsPolicy`；
 - 关闭时等待任务完成并释放线程池。
 
-`CompletableFuture` 显式传入该 Executor，不使用 `ForkJoinPool.commonPool`，也不使用 `parallelStream`。每个任务独立转换异常为结果，单条失败不会导致整批失败。
+`CompletableFuture` 显式传入该 Executor，不使用 `ForkJoinPool.commonPool`，也不使用 `parallelStream`。`shortCodes` 不能为空，原始请求列表最多包含 100 项，且每个短码必须先通过 6 到 8 位 Base62 格式校验；前置校验失败会直接返回 HTTP 400。通过校验后按首次出现顺序去重；每个任务独立转换检测异常为结果，单条检测失败不会导致整批失败。
 
 ## 11. 多实例一致性问题
 

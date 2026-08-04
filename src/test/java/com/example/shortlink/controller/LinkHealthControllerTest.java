@@ -22,7 +22,7 @@ class LinkHealthControllerTest {
         StubLinkHealthService service = new StubLinkHealthService();
         MockMvc mockMvc = standaloneSetup(new LinkHealthController(service)).build();
 
-        mockMvc.perform(post("/api/v1/short-links/abc123/health-check").param("markBroken", "true"))
+        mockMvc.perform(post("/api/v1/short-links/health-check/{shortCode}", "abc123").param("markBroken", "true"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.data.shortCode").value("abc123"))
                 .andExpect(jsonPath("$.data.markedBroken").value(true));
