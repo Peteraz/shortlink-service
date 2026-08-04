@@ -15,11 +15,12 @@ import java.util.concurrent.ConcurrentHashMap;
 public class InMemoryShortLinkRepository implements ShortLinkRepository {
 
     /**
-     * 按短码索引短链对象：key 为 shortCode，value 为 ShortLink。
+     * 短码到短链对象的索引：key 是短码，value 是对应的 ShortLink 对象。
      */
     private final ConcurrentHashMap<String, ShortLink> linkStore = new ConcurrentHashMap<>();
     /**
-     * 按普通短链业务键索引短码：key 为规范化 URL 和渠道，value 为 shortCode，用于保证创建幂等。
+     * 普通短链业务键到短码的索引：key 是“规范化 URL + 渠道”，value 是已生成的短码。
+     * 用于让相同的普通短链创建请求复用已有结果。
      */
     private final ConcurrentHashMap<String, String> normalUrlIndex = new ConcurrentHashMap<>();
 
@@ -36,8 +37,7 @@ public class InMemoryShortLinkRepository implements ShortLinkRepository {
         Objects.requireNonNull(shortCode, "shortCode must not be null");
         Objects.requireNonNull(shortLink, "shortLink must not be null");
 
-        // putIfAbsent 将存在性检查和写入合并为原子操作；
-        // containsKey 后再 put 会在并发场景下允许覆盖写入。
+        // putIfAbsent 会一次完成“未占用才写入”；先检查再写入会留下并发覆盖的空档。
         return linkStore.putIfAbsent(shortCode, shortLink) == null;
     }
 
@@ -63,7 +63,7 @@ public class InMemoryShortLinkRepository implements ShortLinkRepository {
         Objects.requireNonNull(businessKey, "businessKey must not be null");
         Objects.requireNonNull(mappingFunction, "mappingFunction must not be null");
 
-        // 同一个 businessKey 并发创建时，只允许一个线程执行创建逻辑。
+        // 相同业务键并发创建时，只有一个线程会创建并保存短链。
         return normalUrlIndex.computeIfAbsent(businessKey, mappingFunction);
     }
 }

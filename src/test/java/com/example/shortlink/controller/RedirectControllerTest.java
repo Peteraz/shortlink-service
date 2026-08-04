@@ -2,7 +2,7 @@ package com.example.shortlink.controller;
 
 import com.example.shortlink.domain.LinkStatus;
 import com.example.shortlink.domain.LinkType;
-import com.example.shortlink.dto.response.ResolveResult;
+import com.example.shortlink.dto.response.ResolveResponse;
 import com.example.shortlink.service.ShortLinkService;
 import org.junit.jupiter.api.Test;
 import org.springframework.test.web.servlet.MockMvc;
@@ -21,7 +21,7 @@ class RedirectControllerTest {
     @Test
     void shouldRedirectFromPublicShortUrl() throws Exception {
         ShortLinkService service = mock(ShortLinkService.class);
-        when(service.resolve("Ab12xY7")).thenReturn(new ResolveResult(
+        when(service.resolve("Ab12xY7")).thenReturn(new ResolveResponse(
                 "Ab12xY7",
                 "https://example.com/article/1001",
                 LinkType.NORMAL,

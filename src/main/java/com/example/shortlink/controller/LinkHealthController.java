@@ -22,7 +22,7 @@ public class LinkHealthController {
     }
 
     /**
-     * 单个短码的可达性检查，markBroken可选是否自动转为BROKEN状态。
+     * 检测单个短码是否可达；markBroken 为 true 时允许自动标记断链。
      */
     @PostMapping("/health-check/{shortCode}")
     public ApiResponse<HealthCheckResponse> healthCheck(@PathVariable String shortCode, @RequestParam(defaultValue = "false") boolean markBroken) {
@@ -30,7 +30,7 @@ public class LinkHealthController {
     }
 
     /**
-     * 批量短码的可达性检查，markBroken可选是否自动转为BROKEN状态。
+     * 批量检测短码是否可达；每个短码独立返回检测结果。
      */
     @PostMapping("/batch-health-check")
     public ApiResponse<List<HealthCheckResponse>> batchHealthCheck(@RequestBody BatchHealthCheckRequest request) {

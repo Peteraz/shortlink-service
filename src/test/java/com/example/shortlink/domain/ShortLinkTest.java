@@ -27,7 +27,7 @@ class ShortLinkTest {
         assertEquals(List.of("https://example.com/one"), link.getOriginalUrls());
         assertThrows(UnsupportedOperationException.class,
                 () -> link.getOriginalUrls().add("https://example.com/two"));
-        assertEquals(0, link.getResolveCount().get());
+        assertEquals(0, link.getResolveCount());
         assertEquals(LinkStatus.ACTIVE, link.getStatus());
     }
 
@@ -51,7 +51,7 @@ class ShortLinkTest {
                 5);
 
         assertTrue(link.getRemainingTimes() != null);
-        assertEquals(5, link.getRemainingTimes().get());
+        assertEquals(5, link.getRemainingTimes());
         assertEquals(LinkType.BLIND_BOX, link.getType());
     }
 

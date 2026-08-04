@@ -5,7 +5,7 @@ import com.example.shortlink.dto.request.CreateBlindBoxLinkRequest;
 import com.example.shortlink.dto.request.ShortLinkQuery;
 import com.example.shortlink.dto.response.PageResponse;
 import com.example.shortlink.dto.response.ShortLinkResponse;
-import com.example.shortlink.dto.response.ResolveResult;
+import com.example.shortlink.dto.response.ResolveResponse;
 
 public interface ShortLinkService {
 
@@ -15,7 +15,7 @@ public interface ShortLinkService {
 
     ShortLinkResponse getByShortCode(String shortCode);
 
-    ResolveResult resolve(String shortCode);
+    ResolveResponse resolve(String shortCode);
 
     ShortLinkResponse markBroken(String shortCode, String reason);
 

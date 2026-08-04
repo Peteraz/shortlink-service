@@ -11,8 +11,8 @@ import com.example.shortlink.exception.BrokenLinkException;
 public final class LinkStatusPolicy {
 
     /**
-     * 普通短链和盲盒短链都只有 ACTIVE 状态允许进入解析流程。
-     * 盲盒剩余次数的并发扣减由 tryConsume 继续负责最终判断。
+     * 只有 ACTIVE 状态的短链可以开始解析。
+     * 盲盒是否还有可用次数，由后续的次数扣减结果决定。
      */
     public void ensureResolvable(ShortLink shortLink) {
         if (shortLink.getStatus() == LinkStatus.ACTIVE) {

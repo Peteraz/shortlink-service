@@ -17,7 +17,8 @@ public class ShortLinkConfiguration {
     }
 
     /**
-     * 创建单例 HttpClient，禁止自动跟随重定向以限制 SSRF 扩散范围。
+     * 创建复用的 HttpClient。
+     * 健康检测不跟随重定向，避免外部 URL 将请求跳转到受限网络地址。
      */
     @Bean(name = "healthCheckHttpClient")
     public HttpClient healthCheckHttpClient(HealthCheckProperties properties) {
@@ -28,7 +29,8 @@ public class ShortLinkConfiguration {
     }
 
     /**
-     * 创建有界健康检测线程池，并在 Spring 关闭时等待任务后释放资源。
+     * 创建容量受限的健康检测线程池，避免批量检测无限堆积任务。
+     * Spring 关闭时会等待已提交任务完成后再释放线程池资源。
      */
     @Bean(name = "healthCheckExecutor", destroyMethod = "destroy")
     public ThreadPoolTaskExecutor healthCheckExecutor(HealthCheckProperties properties) {

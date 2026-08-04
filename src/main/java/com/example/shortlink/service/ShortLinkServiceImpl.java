@@ -6,7 +6,7 @@ import com.example.shortlink.dto.request.CreateBlindBoxLinkRequest;
 import com.example.shortlink.dto.request.CreateNormalLinkRequest;
 import com.example.shortlink.dto.request.ShortLinkQuery;
 import com.example.shortlink.dto.response.PageResponse;
-import com.example.shortlink.dto.response.ResolveResult;
+import com.example.shortlink.dto.response.ResolveResponse;
 import com.example.shortlink.dto.response.ShortLinkResponse;
 import com.example.shortlink.exception.BlindBoxDuplicateUrlException;
 import com.example.shortlink.exception.BlindBoxUrlInsufficientException;
@@ -161,7 +161,7 @@ public class ShortLinkServiceImpl implements ShortLinkService {
     }
 
     /**
-     * 盲盒不参与普通 URL 幂等，每次请求都生成并原子占用一个新短码。
+     * 盲盒短链不复用普通短链的幂等结果；每次创建都会生成一条新的短链。
      */
     @Override
     public ShortLinkResponse createBlindBoxLink(CreateBlindBoxLinkRequest request) {
@@ -184,10 +184,11 @@ public class ShortLinkServiceImpl implements ShortLinkService {
     }
 
     /**
-     * 根据类型分派解析流程；盲盒流程必须先通过 CAS 扣减有效次数。
+     * 根据短链类型执行对应的解析流程。
+     * 盲盒必须先成功消耗一次有效次数，才会返回目标 URL。
      */
     @Override
-    public ResolveResult resolve(String shortCode) {
+    public ResolveResponse resolve(String shortCode) {
         shortCodeValidator.validate(shortCode);
         ShortLink shortLink = findByShortCode(shortCode);
 
@@ -197,20 +198,20 @@ public class ShortLinkServiceImpl implements ShortLinkService {
         return resolveBlindBox(shortLink);
     }
 
-    private ResolveResult resolveNormal(ShortLink shortLink) {
+    private ResolveResponse resolveNormal(ShortLink shortLink) {
         return shortLink.withStateLock(() -> {
-            // 状态检查、目标读取和计数更新必须在同一把短链锁内完成。
+            // 状态检查、读取目标和增加次数必须连续完成，期间不能被断链操作打断。
             linkStatusPolicy.ensureResolvable(shortLink);
 
             String targetUrl = shortLink.getOriginalUrls().getFirst();
-            shortLink.getResolveCount().incrementAndGet();
-            return mapper.toResolveResult(shortLink, targetUrl);
+            shortLink.incrementResolveCount();
+            return mapper.toResolveResponse(shortLink, targetUrl);
         });
     }
 
-    private ResolveResult resolveBlindBox(ShortLink shortLink) {
+    private ResolveResponse resolveBlindBox(ShortLink shortLink) {
         return shortLink.withStateLock(() -> {
-            // 状态检查和次数扣减必须在同一把短链锁内完成。
+            // 先确认状态，再扣减次数；两步必须连续完成。
             linkStatusPolicy.ensureResolvable(shortLink);
 
             // 只有成功扣减次数的请求，才获得本次解析资格。
@@ -219,13 +220,13 @@ public class ShortLinkServiceImpl implements ShortLinkService {
             }
 
             String targetUrl = blindBoxSelector.select(shortLink.getOriginalUrls());
-            shortLink.getResolveCount().incrementAndGet();
-            return mapper.toResolveResult(shortLink, targetUrl);
+            shortLink.incrementResolveCount();
+            return mapper.toResolveResponse(shortLink, targetUrl);
         });
     }
 
     /**
-     * 标记操作由状态策略约束；BROKEN 重复标记保持原有原因实现幂等。
+     * 重复标记已断链的短链时，保留第一次的断链原因并直接返回。
      */
     @Override
     public ShortLinkResponse markBroken(String shortCode, String reason) {
@@ -234,7 +235,7 @@ public class ShortLinkServiceImpl implements ShortLinkService {
         ShortLink shortLink = findByShortCode(shortCode);
 
         return shortLink.withStateLock(() -> {
-            // 已经断链时直接返回第一次标记的结果，保证重复操作幂等。
+            // 已断链时不覆盖第一次记录的原因，重复请求返回已有结果。
             if (linkStatusPolicy.isBroken(shortLink)) {
                 return mapper.toResponse(shortLink);
             }
@@ -282,7 +283,8 @@ public class ShortLinkServiceImpl implements ShortLinkService {
     }
 
     /**
-     * 普通短码碰撞时重试，只有 Repository 原子占用成功才返回短码。
+     * 创建普通短链时，如果生成的短码已存在则重新生成。
+     * 只有仓储确认短码尚未被占用后，才返回该短码。
      */
     private String createAndStore(String normalizedUrl, String normalizedChannel) {
         for (int attempt = 1; attempt <= MAX_GENERATION_ATTEMPTS; attempt++) {
@@ -302,7 +304,7 @@ public class ShortLinkServiceImpl implements ShortLinkService {
      * 盲盒每次创建都生成新短码，但仍使用相同的碰撞重试上限。
      */
     private String createAndStoreBlindBox(List<String> normalizedUrls, String normalizedChannel, int validTimes) {
-        // 最多尝试MAX_GENERATION_ATTEMPTS次生唯一短码，避免无限重试
+        // 短码冲突时重新生成，最多重试指定次数，避免无限循环。
         for (int attempt = 1; attempt <= MAX_GENERATION_ATTEMPTS; attempt++) {
             String candidateCode = shortCodeGenerator.generate();
             ShortLink shortLink = ShortLink.blindBox(
@@ -334,7 +336,7 @@ public class ShortLinkServiceImpl implements ShortLinkService {
         List<String> normalizedUrls = new ArrayList<>(originalUrls.size());
         for (String originalUrl : originalUrls) {
             String normalizedUrl = urlValidator.validateAndNormalize(originalUrl);
-            // 存在重复url时抛出异常,避免盲盒短链中出现重复的原始url,保证每个原始url都是唯一的
+            // 比较规范化后的 URL；例如仅 host 大小写不同的两个 URL 也视为重复。
             if (!seenUrls.add(normalizedUrl)) {
                 throw new BlindBoxDuplicateUrlException("blind-box original URLs must not contain duplicates");
             }

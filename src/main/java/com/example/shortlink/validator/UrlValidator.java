@@ -37,9 +37,9 @@ public class UrlValidator {
     }
 
     /**
-     * 规范化协议和 host
-     * 例如 HTTPS://User:Pass@Example.COM:8443/path?x=1#top
-     * 规范化 https://User:Pass@example.com:8443/path?x=1#top
+     * 将协议和 host 统一为小写，保留用户信息、端口、路径、查询参数和片段不变。
+     * 例如 {@code HTTPS://User:Pass@Example.COM:8443/path?x=1#top}
+     * 会规范化为 {@code https://User:Pass@example.com:8443/path?x=1#top}。
      */
     private String normalizeSchemeAndHost(URI uri) {
         String rawAuthority = uri.getRawAuthority();

@@ -2,7 +2,6 @@ package com.example.shortlink.mapper;
 
 import com.example.shortlink.config.ShortLinkProperties;
 import com.example.shortlink.domain.ShortLink;
-import com.example.shortlink.dto.response.ResolveResult;
 import com.example.shortlink.dto.response.ResolveResponse;
 import com.example.shortlink.dto.response.ShortLinkResponse;
 import org.springframework.stereotype.Component;
@@ -20,7 +19,7 @@ public class ShortLinkMapper {
     }
 
     /**
-     * 将领域对象快照转换为响应 DTO，并读取原子计数的普通数值。
+     * 将领域对象快照转换为响应 DTO。
      */
     public ShortLinkResponse toResponse(ShortLink shortLink) {
         return shortLink.withStateLock(() -> new ShortLinkResponse(
@@ -30,44 +29,27 @@ public class ShortLinkMapper {
                 shortLink.getOriginalUrls(),
                 shortLink.getChannel(),
                 shortLink.getCreatedAt(),
-                shortLink.getResolveCount().get(),
+                shortLink.getResolveCount(),
                 shortLink.getStatus(),
                 getRemainingTimes(shortLink),
                 shortLink.getBrokenReason(),
                 shortLink.getLastCheckedAt()));
     }
 
-    public ResolveResult toResolveResult(ShortLink shortLink, String targetUrl) {
-        return shortLink.withStateLock(() -> new ResolveResult(
+    public ResolveResponse toResolveResponse(ShortLink shortLink, String targetUrl) {
+        return shortLink.withStateLock(() -> new ResolveResponse(
                 shortLink.getShortCode(),
                 targetUrl,
                 shortLink.getType(),
                 shortLink.getChannel(),
                 shortLink.getCreatedAt(),
-                shortLink.getResolveCount().get(),
+                shortLink.getResolveCount(),
                 getRemainingTimes(shortLink),
                 shortLink.getStatus()));
     }
 
-    /**
-     * 将已经完成的解析结果转换为 HTTP API 使用的 DTO。
-     */
-    public ResolveResponse toResolveResponse(ResolveResult result) {
-        return new ResolveResponse(
-                result.getShortCode(),
-                result.getTargetUrl(),
-                result.getType(),
-                result.getChannel(),
-                result.getCreatedAt(),
-                result.getResolveCount(),
-                result.getRemainingTimes(),
-                result.getStatus());
-    }
-
     private Integer getRemainingTimes(ShortLink shortLink) {
-        return shortLink.getRemainingTimes() == null
-                ? null
-                : shortLink.getRemainingTimes().get();
+        return shortLink.getRemainingTimes();
     }
 
 

@@ -10,7 +10,7 @@ import org.springframework.stereotype.Component;
 public class DefaultBlindBoxSelector implements BlindBoxSelector {
 
     /**
-     * 从列表随机选出一个url
+     * 从候选 URL 中等概率随机选择一个。
      */
     @Override
     public String select(List<String> candidates) {

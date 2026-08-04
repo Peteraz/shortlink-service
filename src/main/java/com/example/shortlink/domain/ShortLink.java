@@ -4,15 +4,12 @@ import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Objects;
 import java.util.concurrent.locks.ReentrantLock;
-import java.util.concurrent.atomic.AtomicInteger;
-import java.util.concurrent.atomic.AtomicLong;
 import java.util.function.Supplier;
 
 /**
  * 普通短链和盲盒短链共用的内存领域对象。
  *
- * <p>可变计数使用原子类型，状态使用 volatile，保证并发请求可以安全地观察和更新内存对象。
- * 盲盒次数通过 CAS 循环扣减，避免剩余次数减到负数。</p>
+ * <p>状态、解析次数和盲盒剩余次数均由当前短链的状态锁保护，保证并发请求可以安全地观察和更新内存对象。</p>
  */
 public final class ShortLink {
 
@@ -42,27 +39,28 @@ public final class ShortLink {
      */
     private final LocalDateTime createdAt;
     /**
-     * 原子解析次数，仅供领域对象内部并发更新。
+     * 成功解析次数，由状态锁保护。
      */
-    private final AtomicLong resolveCount;
+    private long resolveCount;
     /**
      * 短链当前状态。
      */
-    private volatile LinkStatus status;
+    private LinkStatus status;
     /**
      * 盲盒剩余有效次数；普通短链没有该计数器。
      */
-    private final AtomicInteger remainingTimes;
+    private Integer remainingTimes;
     /**
      * 主动或自动断链时记录的原因。
      */
-    private volatile String brokenReason;
+    private String brokenReason;
     /**
      * 最近一次可达性检测时间。
      */
-    private volatile LocalDateTime lastCheckedAt;
+    private LocalDateTime lastCheckedAt;
     /**
-     * 串行化同一条短链的状态检查和状态变更，避免解析与断链标记之间出现检查后失效的窗口。
+     * 同一短链的状态检查和状态修改共用此锁。
+     * 防止一个请求刚确认短链可解析，另一个请求就将它标记为断链。
      */
     private final ReentrantLock stateLock = new ReentrantLock();
 
@@ -78,7 +76,7 @@ public final class ShortLink {
         this.originalUrls = copyAndValidateUrls(originalUrls);
         this.channel = normalizeChannel(channel);
         this.createdAt = Objects.requireNonNull(createdAt, "createdAt must not be null");
-        this.resolveCount = new AtomicLong(0);
+        this.resolveCount = 0;
         this.status = LinkStatus.ACTIVE;
 
         if (type == LinkType.NORMAL && remainingTimes != null) {
@@ -87,7 +85,7 @@ public final class ShortLink {
         if (type == LinkType.BLIND_BOX && (remainingTimes == null || remainingTimes <= 0)) {
             throw new IllegalArgumentException("blind-box remaining times must be greater than zero");
         }
-        this.remainingTimes = remainingTimes == null ? null : new AtomicInteger(remainingTimes);
+        this.remainingTimes = remainingTimes;
     }
 
     /**
@@ -98,7 +96,7 @@ public final class ShortLink {
     }
 
     /**
-     * 盲盒保存候选 URL 的不可变副本，并以 validTimes 初始化原子计数器。
+     * 盲盒保存候选 URL 的不可变副本，并以 validTimes 初始化剩余次数。
      */
     public static ShortLink blindBox(
             String shortCode,
@@ -135,25 +133,30 @@ public final class ShortLink {
         return createdAt;
     }
 
-    public AtomicLong getResolveCount() {
-        return resolveCount;
+    public long getResolveCount() {
+        return withStateLock(() -> resolveCount);
     }
 
     public LinkStatus getStatus() {
-        return status;
+        return withStateLock(() -> status);
     }
 
-    public AtomicInteger getRemainingTimes() {
-        return remainingTimes;
+    public Integer getRemainingTimes() {
+        return withStateLock(() -> remainingTimes);
     }
 
     /**
-     * 在当前短链的状态锁内执行操作。
+     * 在当前短链的状态锁保护范围内执行操作。
      *
-     * <p>解析和断链标记必须使用同一把锁，才能保证状态检查与后续动作不可被另一方插入。</p>
+     * <p>解析和断链标记使用同一把锁，保证状态检查完成后，后续操作不会被其他请求插入。
+     * 当前线程已持有该锁时，直接在现有锁范围内执行，避免重复加锁。</p>
      */
     public <T> T withStateLock(Supplier<T> action) {
         Objects.requireNonNull(action, "action must not be null");
+        if (stateLock.isHeldByCurrentThread()) {
+            return action.get();
+        }
+
         stateLock.lock();
         try {
             return action.get();
@@ -163,45 +166,31 @@ public final class ShortLink {
     }
 
     /**
-     * 尝试使用一次盲盒解析次数。
+     * 在当前短链的状态锁内消耗一次盲盒解析次数。
      *
-     * <p>该方法只由盲盒解析流程调用。返回 true 表示本次请求成功获得解析资格；返回 false 表示次数已经用完。
-     * 最后一次次数使用成功后，会把短链自动标记为 BROKEN。</p>
+     * <p>返回 {@code true} 表示本次请求获得解析资格；最后一次扣减成功后，
+     * 短链会自动标记为 {@link LinkStatus#BROKEN}。</p>
      */
     public boolean tryConsume() {
         return withStateLock(() -> {
-            boolean consumed = tryConsume(remainingTimes);
-            if (consumed && remainingTimes.get() == 0) {
-                markBrokenByExhaustion();
-            }
-            return consumed;
-        });
-    }
-
-    /**
-     * 在并发请求下安全地扣减一次剩余次数。
-     */
-    private static boolean tryConsume(AtomicInteger remainingTimes) {
-        while (true) {
-            int current = remainingTimes.get();
-            if (current <= 0) {
-                // 没有剩余次数，扣减失败。
+            if (remainingTimes <= 0) {
                 return false;
             }
 
-            if (remainingTimes.compareAndSet(current, current - 1)) {
-                return true;
+            remainingTimes--;
+            if (remainingTimes == 0) {
+                markBrokenByExhaustion();
             }
-            // 其他线程已经先修改了次数，重新读取最新值后再尝试扣减。
-        }
+            return true;
+        });
     }
 
     public String getBrokenReason() {
-        return brokenReason;
+        return withStateLock(() -> brokenReason);
     }
 
     public LocalDateTime getLastCheckedAt() {
-        return lastCheckedAt;
+        return withStateLock(() -> lastCheckedAt);
     }
 
     /**
@@ -216,6 +205,16 @@ public final class ShortLink {
     }
 
     /**
+     * 在当前短链的状态锁内增加一次成功解析次数。
+     */
+    public void incrementResolveCount() {
+        withStateLock(() -> {
+            resolveCount++;
+            return null;
+        });
+    }
+
+    /**
      * 盲盒最后一次解析次数用完后，按照需求自动标记为断链。
      */
     public void markBrokenByExhaustion() {
@@ -223,7 +222,7 @@ public final class ShortLink {
             if (type != LinkType.BLIND_BOX) {
                 throw new IllegalStateException("normal short links cannot be marked broken by exhaustion");
             }
-            if (remainingTimes.get() != 0) {
+            if (remainingTimes != 0) {
                 throw new IllegalStateException("blind-box can be marked broken by exhaustion only when remaining times are zero");
             }
             this.brokenReason = "blind-box valid times exhausted";
@@ -236,7 +235,7 @@ public final class ShortLink {
      * 判断盲盒是否已经没有剩余解析次数。
      */
     public boolean hasNoRemainingTimes() {
-        return type == LinkType.BLIND_BOX && remainingTimes.get() == 0;
+        return withStateLock(() -> type == LinkType.BLIND_BOX && remainingTimes == 0);
     }
 
     public void markCheckedAt(LocalDateTime checkedAt) {

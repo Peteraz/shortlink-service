@@ -74,7 +74,8 @@ public class LinkHealthServiceImpl implements LinkHealthService {
     }
 
     /**
-     * 检测单条短链；是否自动转为 BROKEN 由 markBroken 和状态策略共同决定。
+     * 检测单条短链。
+     * 当 markBroken 为 true、所有 URL 都不可达且检测器没有内部异常时，才会自动标记断链。
      */
     @Override
     public HealthCheckResponse healthCheck(String shortCode, boolean markBroken) {
@@ -136,7 +137,7 @@ public class LinkHealthServiceImpl implements LinkHealthService {
     }
 
     private HealthCheckResponse checkLink(ShortLink shortLink, boolean markBroken) {
-        // 普通短链只有一个 URL；盲盒检测全部候选，任一可达即可判定整体可达。
+        // 普通短链只会检测一个 URL；盲盒检测全部候选 URL，任一可达即视为短链可达。
         List<SafeCheckResult> checkResults = shortLink.getOriginalUrls().stream().map(this::safeCheck).toList();
         List<UrlHealthResult> urlResults = checkResults.stream().map(SafeCheckResult::result).toList();
         boolean reachable = urlResults.stream().anyMatch(UrlHealthResult::isReachable);
@@ -144,6 +145,7 @@ public class LinkHealthServiceImpl implements LinkHealthService {
         LocalDateTime checkedAt = LocalDateTime.now(clock);
         shortLink.markCheckedAt(checkedAt);
 
+        // 检测器自身报错无法证明 URL 不可达，因此不能据此自动标记断链。
         boolean markedBroken = markBroken && !reachable && !checkerFailed
                 && linkStatusPolicy.markBrokenIfAllowed(shortLink, AUTOMATIC_BROKEN_REASON);
         return new HealthCheckResponse(
@@ -157,7 +159,7 @@ public class LinkHealthServiceImpl implements LinkHealthService {
     }
 
     private SafeCheckResult safeCheck(String url) {
-        // LinkHealthChecker 负责网络异常转结果；这里再兜底隔离实现异常。
+        // 网络异常由检测器转换为结果；这里仅处理检测器自身的意外异常。
         long startedAt = System.nanoTime();
         try {
             return new SafeCheckResult(linkHealthChecker.check(url), false);

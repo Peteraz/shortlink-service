@@ -1,6 +1,6 @@
 package com.example.shortlink.controller;
 
-import com.example.shortlink.dto.response.ResolveResult;
+import com.example.shortlink.dto.response.ResolveResponse;
 import com.example.shortlink.service.ShortLinkService;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
@@ -29,7 +29,7 @@ public class RedirectController {
      */
     @GetMapping("/{shortCode}")
     public ResponseEntity<Void> redirect(@PathVariable String shortCode) {
-        ResolveResult result = shortLinkService.resolve(shortCode);
+        ResolveResponse result = shortLinkService.resolve(shortCode);
         return ResponseEntity.status(HttpStatus.FOUND)
                 .location(URI.create(result.getTargetUrl()))
                 .build();

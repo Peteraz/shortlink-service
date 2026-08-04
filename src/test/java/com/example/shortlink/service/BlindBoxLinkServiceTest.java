@@ -6,7 +6,7 @@ import com.example.shortlink.domain.LinkType;
 import com.example.shortlink.domain.ShortLink;
 import com.example.shortlink.dto.request.CreateNormalLinkRequest;
 import com.example.shortlink.dto.request.CreateBlindBoxLinkRequest;
-import com.example.shortlink.dto.response.ResolveResult;
+import com.example.shortlink.dto.response.ResolveResponse;
 import com.example.shortlink.dto.response.ShortLinkResponse;
 import com.example.shortlink.exception.BlindBoxDuplicateUrlException;
 import com.example.shortlink.exception.BlindBoxExhaustedException;
@@ -94,7 +94,7 @@ class BlindBoxLinkServiceTest {
                 new CreateBlindBoxLinkRequest(CANDIDATE_URLS, "wechat", 100)).getShortCode();
 
         for (int index = 0; index < 100; index++) {
-            ResolveResult result = service.resolve(shortCode);
+            ResolveResponse result = service.resolve(shortCode);
             assertTrue(CANDIDATE_URLS.contains(result.getTargetUrl()));
         }
     }
@@ -107,7 +107,7 @@ class BlindBoxLinkServiceTest {
                 new CreateNormalLinkRequest("HTTPS://EXAMPLE.COM/normal", "wechat"))
                 .getShortCode();
 
-        ResolveResult result = service.resolve(shortCode);
+        ResolveResponse result = service.resolve(shortCode);
 
         assertEquals("https://example.com/normal", result.getTargetUrl());
         assertEquals(LinkType.NORMAL, result.getType());
@@ -159,7 +159,7 @@ class BlindBoxLinkServiceTest {
 
         service.resolve(shortCode);
         service.resolve(shortCode);
-        ResolveResult lastResult = service.resolve(shortCode);
+        ResolveResponse lastResult = service.resolve(shortCode);
 
         assertEquals(0, lastResult.getRemainingTimes());
         assertEquals(LinkStatus.BROKEN, lastResult.getStatus());
@@ -167,8 +167,8 @@ class BlindBoxLinkServiceTest {
         assertThrows(BlindBoxExhaustedException.class, () -> service.resolve(shortCode));
 
         ShortLink storedLink = repository.findByShortCode(shortCode).orElseThrow();
-        assertEquals(0, storedLink.getRemainingTimes().get());
-        assertEquals(3, storedLink.getResolveCount().get());
+        assertEquals(0, storedLink.getRemainingTimes());
+        assertEquals(3, storedLink.getResolveCount());
     }
 
     @Test
@@ -196,7 +196,7 @@ class BlindBoxLinkServiceTest {
                         return false;
                     } finally {
                         minimumObservedRemaining.accumulateAndGet(
-                                storedLink.getRemainingTimes().get(), Math::min);
+                                storedLink.getRemainingTimes(), Math::min);
                     }
                 });
             }
@@ -219,9 +219,9 @@ class BlindBoxLinkServiceTest {
 
             assertEquals(validTimes, successCount);
             assertEquals(taskCount - validTimes, failureCount);
-            assertEquals(0, storedLink.getRemainingTimes().get());
+            assertEquals(0, storedLink.getRemainingTimes());
             assertEquals(0, minimumObservedRemaining.get());
-            assertEquals(validTimes, storedLink.getResolveCount().get());
+            assertEquals(validTimes, storedLink.getResolveCount());
             assertEquals(LinkStatus.BROKEN, storedLink.getStatus());
         } finally {
             executor.shutdownNow();

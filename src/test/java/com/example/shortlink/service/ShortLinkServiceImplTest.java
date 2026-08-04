@@ -132,7 +132,7 @@ class ShortLinkServiceImplTest {
             }
 
             assertEquals(taskCount,
-                    repository.findByShortCode(shortCode).orElseThrow().getResolveCount().get());
+                    repository.findByShortCode(shortCode).orElseThrow().getResolveCount());
         } finally {
             executor.shutdownNow();
         }

@@ -10,7 +10,6 @@ import com.example.shortlink.dto.response.ResolveResponse;
 import com.example.shortlink.dto.response.ShortLinkResponse;
 import com.example.shortlink.domain.LinkStatus;
 import com.example.shortlink.domain.LinkType;
-import com.example.shortlink.mapper.ShortLinkMapper;
 import com.example.shortlink.service.ShortLinkService;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
@@ -29,18 +28,13 @@ public class ShortLinkController {
      * 短链创建、查询、解析和断链服务。
      */
     private final ShortLinkService shortLinkService;
-    /**
-     * 解析结果到接口响应对象的转换器。
-     */
-    private final ShortLinkMapper shortLinkMapper;
 
-    public ShortLinkController(ShortLinkService shortLinkService, ShortLinkMapper shortLinkMapper) {
+    public ShortLinkController(ShortLinkService shortLinkService) {
         this.shortLinkService = shortLinkService;
-        this.shortLinkMapper = shortLinkMapper;
     }
 
     /**
-     * 创建普通短链接
+     * 创建普通短链。
      */
     @PostMapping("/normal")
     public ApiResponse<ShortLinkResponse> createNormalLink(@RequestBody CreateNormalLinkRequest request) {
@@ -48,7 +42,7 @@ public class ShortLinkController {
     }
 
     /**
-     * 创建盲盒短链接
+     * 创建盲盒短链。
      */
     @PostMapping("/blind-box")
     public ApiResponse<ShortLinkResponse> createBlindBoxLink(@RequestBody CreateBlindBoxLinkRequest request) {
@@ -56,7 +50,7 @@ public class ShortLinkController {
     }
 
     /**
-     * 短链详情查询
+     * 查询短链详情，不会触发解析。
      */
     @GetMapping("/query/{shortCode}")
     public ApiResponse<ShortLinkResponse> getByShortCode(@PathVariable String shortCode) {
@@ -68,11 +62,11 @@ public class ShortLinkController {
      */
     @GetMapping("/resolve/{shortCode}")
     public ApiResponse<ResolveResponse> resolve(@PathVariable String shortCode) {
-        return ApiResponse.success(shortLinkMapper.toResolveResponse(shortLinkService.resolve(shortCode)));
+        return ApiResponse.success(shortLinkService.resolve(shortCode));
     }
 
     /**
-     * 断链原因由请求校验
+     * 手动标记断链；断链原因由 Service 校验和规范化。
      */
     @PatchMapping("/broken/{shortCode}")
     public ApiResponse<ShortLinkResponse> markBroken(@PathVariable String shortCode, @RequestBody MarkBrokenRequest request) {

@@ -9,8 +9,8 @@
 - Java 原生 `java.net.http.HttpClient`
 - Base62 短码，默认 7 位，支持配置 6、7、8 位
 - 普通短链使用 `normalizedUrl + "|" + normalizedChannel` 幂等
-- 盲盒使用 `AtomicInteger + CAS` 扣减有效次数
-- 访问次数使用 `AtomicLong`
+- 盲盒在每条短链的状态锁内扣减有效次数
+- 访问次数由每条短链的状态锁保护
 
 当前基线默认短码为 7 位；同时支持配置为 6 位或 8 位。7 位拥有更大的 Base62 编码空间，更适合生产规模。
 
@@ -37,7 +37,7 @@ src/main/java/com/example/shortlink
 ## 已实现能力
 
 - 普通短链创建、详情查询和规范化 URL 校验
-- 盲盒短链创建、均匀随机解析和 AtomicInteger CAS 次数扣减
+- 盲盒短链创建、均匀随机解析和状态锁内的次数扣减
 - HTTP 302 短链跳转
 - 解析详情查询（会真实解析并消耗次数）
 - 主动标记断链和幂等重复标记
@@ -149,9 +149,9 @@ curl "http://localhost:8090/api/v1/short-links/queryByPage?channel=wechat&status
 ## 并发安全和随机性
 
 - 短码占用使用 `putIfAbsent`，普通业务键使用 `computeIfAbsent`。
-- 普通解析计数使用 `AtomicLong.incrementAndGet()`。
-- 盲盒只有 CAS 成功扣减后才选择 URL，避免超发和负数。
-- 每条 `ShortLink` 都有独立的 `ReentrantLock` 状态锁，不存在全局锁竞争。解析、主动/自动断链、最近检测时间写入及响应快照读取使用同一把锁，避免状态、次数和断链原因在并发下出现混合结果；网络健康检测本身在锁外执行，不会长时间阻塞同一短链的其他状态操作。
+- 每条 `ShortLink` 都有独立的 `ReentrantLock` 状态锁，不存在全局锁竞争。解析次数、盲盒剩余次数、状态、断链原因和最近检测时间都在这把锁内读写。
+- 盲盒只有在锁内成功扣减一次有效次数后才会选择 URL，避免超发和负数。
+- 解析、主动/自动断链及响应快照读取使用同一把锁，避免状态、次数和断链原因在并发下出现混合结果；网络健康检测本身在锁外执行，不会长时间阻塞同一短链的其他状态操作。
 - 批量检测使用核心线程 4、最大线程 8、容量 100 的有界线程池，并显式传入 `CompletableFuture`。
 - 盲盒通过 `ThreadLocalRandom` 在候选下标范围内均匀选择；有限样本不保证完全平均。
 

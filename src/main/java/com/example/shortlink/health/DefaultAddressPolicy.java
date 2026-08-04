@@ -15,7 +15,7 @@ public class DefaultAddressPolicy implements AddressPolicy {
     private static final String BLOCKED_MESSAGE = "request blocked by SSRF security policy";
 
     /**
-     * 解析 host 的全部地址并拒绝任意受限地址，策略采用 fail-closed。
+     * 解析 host 对应的全部 IP。只要其中一个地址受限，就拒绝请求；无法确认安全时同样拒绝。
      */
     @Override
     public void validate(URI uri) {
@@ -42,8 +42,8 @@ public class DefaultAddressPolicy implements AddressPolicy {
             throw new AddressPolicyViolationException("DNS resolution failed");
         }
 
-        // 解析全部地址，只要任一结果属于私有地址或本机地址就拒绝请求。
-        // 多地址 DNS 结果采用 fail-closed 策略，不能只依赖用户可控的 host 字符串。
+        // 不能只根据用户传入的 host 判断安全，必须检查 DNS 返回的每个地址。
+        // 只要任一地址属于本机或内网地址，就拒绝整个请求。
         for (InetAddress address : addresses) {
             if (isBlocked(address)) {
                 throw new AddressPolicyViolationException(BLOCKED_MESSAGE);
