@@ -11,9 +11,9 @@ import org.springframework.validation.annotation.Validated;
 public class ShortLinkProperties {
 
     /**
-     * 默认短码长度；基线默认使用 6 位。
+     * 默认短码长度；基线默认使用 7 位。
      */
-    public static final int DEFAULT_CODE_LENGTH = 6;
+    public static final int DEFAULT_CODE_LENGTH = 7;
     /**
      * 允许的最短短码长度。
      */

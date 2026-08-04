@@ -239,7 +239,7 @@ class BlindBoxLinkServiceTest {
                 new ChannelNormalizer(),
                 new NormalLinkBusinessKeyFactory(),
                 new ShortLinkMapper(properties),
-                new ShortCodeValidator(properties),
+                new ShortCodeValidator(),
                 new DefaultBlindBoxSelector(),
                 FIXED_CLOCK);
     }

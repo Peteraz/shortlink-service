@@ -27,8 +27,7 @@ public class UrlValidator {
         try {
             URI uri = new URI(trimmedUrl);
             String scheme = uri.getScheme();
-            if (uri.getHost() == null || !("http".equalsIgnoreCase(scheme)
-                    || "https".equalsIgnoreCase(scheme))) {
+            if (uri.getHost() == null || !("http".equalsIgnoreCase(scheme) || "https".equalsIgnoreCase(scheme))) {
                 throw new InvalidUrlException("long URL must use http or https and contain a host");
             }
             return normalizeSchemeAndHost(uri);

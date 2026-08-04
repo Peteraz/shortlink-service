@@ -13,12 +13,11 @@ public class Base62ShortCodeGenerator implements ShortCodeGenerator {
     /**
      * 短码使用的 62 个字符集合。
      */
-    public static final String BASE62_CHARACTERS =
-            "0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ";
+    public static final String BASE62_CHARACTERS = "0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ";
 
     /**
      * 为兼容第一阶段显式长度测试而保留的常量。
-     * 应用默认长度由 ShortLinkProperties 控制，当前为 6 位。
+     * 应用默认长度由 ShortLinkProperties 控制，当前为 7 位。
      */
     public static final int DEFAULT_LENGTH = 7;
 

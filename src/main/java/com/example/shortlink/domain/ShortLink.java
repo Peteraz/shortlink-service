@@ -87,11 +87,7 @@ public final class ShortLink {
     /**
      * 普通短链只有一个目标 URL，不维护盲盒有效次数。
      */
-    public static ShortLink normal(
-            String shortCode,
-            String originalUrl,
-            String channel,
-            LocalDateTime createdAt) {
+    public static ShortLink normal(String shortCode, String originalUrl, String channel, LocalDateTime createdAt) {
         return new ShortLink(shortCode, LinkType.NORMAL, List.of(originalUrl), channel, createdAt, null);
     }
 
@@ -146,13 +142,12 @@ public final class ShortLink {
     }
 
     /**
-     * 原子消耗一次盲盒解析次数。
+     * 尝试使用一次盲盒解析次数。
      *
-     * <p>只有 CAS 成功后才更新状态。调用方必须以返回值作为是否允许解析的唯一依据，
-     * status 仅用于展示和快速失败。</p>
+     * <p>返回 true 表示本次请求成功获得解析资格；返回 false 表示次数已经用完。
+     * 最后一次次数使用成功后，会把短链状态改为 EXHAUSTED。</p>
      */
     public boolean tryConsume() {
-        // CAS 是次数扣减的唯一授权结果；status 只用于展示和快速失败。
         if (remainingTimes == null) {
             throw new IllegalStateException("normal short links do not have remaining times");
         }
@@ -164,18 +159,21 @@ public final class ShortLink {
         return consumed;
     }
 
+    /**
+     * 在并发请求下安全地扣减一次剩余次数。
+     */
     private static boolean tryConsume(AtomicInteger remainingTimes) {
         while (true) {
             int current = remainingTimes.get();
             if (current <= 0) {
+                // 没有剩余次数，扣减失败。
                 return false;
             }
 
-            // 先 get 再 decrementAndGet 不是原子操作：多个线程可能同时读到同一个正数并全部扣减。
             if (remainingTimes.compareAndSet(current, current - 1)) {
                 return true;
             }
-            // 其他线程已经抢先更新，重新读取最新值并继续重试。
+            // 其他线程已经先修改了次数，重新读取最新值后再尝试扣减。
         }
     }
 

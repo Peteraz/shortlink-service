@@ -7,12 +7,12 @@
 - Spring Web、Jakarta Validation、JUnit 5、Spring MockMvc
 - `ConcurrentHashMap` 内存存储
 - Java 原生 `java.net.http.HttpClient`
-- Base62 短码，默认 6 位，支持配置 6、7、8 位
+- Base62 短码，默认 7 位，支持配置 6、7、8 位
 - 普通短链使用 `normalizedUrl + "|" + normalizedChannel` 幂等
 - 盲盒使用 `AtomicInteger + CAS` 扣减有效次数
 - 访问次数使用 `AtomicLong`
 
-当前基线默认短码为 6 位；7 位是可配置选项，不静默修改默认值。7 位拥有更大的 Base62 编码空间，更适合生产规模。
+当前基线默认短码为 7 位；同时支持配置为 6 位或 8 位。7 位拥有更大的 Base62 编码空间，更适合生产规模。
 
 详细设计见 [docs/design.md](D:/Code/shortlink-service/docs/design.md)。
 
@@ -65,7 +65,7 @@ GET   /api/health
 `GET /api/v1/short-links/{shortCode}` 只查询详情，不增加解析次数。
 `GET /api/v1/short-links/{shortCode}/resolve` 和 `GET /s/{shortCode}` 会执行真实解析。
 
-健康检测使用 Java 17 原生 `HttpClient`。单条检测先发送 HEAD，收到 405 时降级为 GET；2xx 和 3xx 视为可达，客户端不自动跟随重定向。默认连接超时为 2 秒、单次请求超时为 3 秒。
+健康检测使用 Java 21 原生 `java.net.http.HttpClient`。单条检测先发送 HEAD，收到 405 时降级为 GET；2xx 和 3xx 视为可达，客户端不自动跟随重定向。默认连接超时为 2 秒、单次请求超时为 3 秒。
 
 批量检测最多接受 100 个短码，使用独立的有界线程池（核心线程 4、最大线程 8、队列 100、CallerRunsPolicy），不会使用 `ForkJoinPool.commonPool` 或 `parallelStream`。
 
@@ -80,7 +80,7 @@ GET   /api/health
 ```yaml
 short-link:
   domain: http://localhost:8090
-  code-length: 6
+  code-length: 7
   health-check:
     connect-timeout-millis: 2000
     request-timeout-millis: 3000
@@ -91,6 +91,7 @@ short-link:
 ```
 
 短码长度支持 6、7、8 位，应用启动时校验配置。
+配置项只决定后续新生成短码的长度，短码校验始终接受 6、7、8 位，因此从 7 位切换到 6 位或 8 位不会因长度校验使历史短码失效。
 
 ## 测试和启动
 

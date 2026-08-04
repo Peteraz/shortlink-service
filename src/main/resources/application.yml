@@ -3,7 +3,7 @@ server:
 
 short-link:
   domain: http://localhost:8090
-  code-length: 6
+  code-length: 7
   health-check:
     connect-timeout-millis: 2000
     request-timeout-millis: 3000

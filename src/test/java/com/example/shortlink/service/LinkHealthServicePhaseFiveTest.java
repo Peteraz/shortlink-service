@@ -150,7 +150,7 @@ class LinkHealthServicePhaseFiveTest {
         return new LinkHealthServiceImpl(
                 repository,
                 checker,
-                new ShortCodeValidator(properties),
+                new ShortCodeValidator(),
                 Runnable::run,
                 FIXED_CLOCK);
     }

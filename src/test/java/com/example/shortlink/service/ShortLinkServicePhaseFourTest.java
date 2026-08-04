@@ -143,7 +143,7 @@ class ShortLinkServicePhaseFourTest {
                 new ChannelNormalizer(),
                 new NormalLinkBusinessKeyFactory(),
                 new ShortLinkMapper(properties),
-                new ShortCodeValidator(properties),
+                new ShortCodeValidator(),
                 clock);
     }
 

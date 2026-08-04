@@ -10,20 +10,15 @@ import com.example.shortlink.exception.BrokenLinkException;
  */
 public final class LinkStatusPolicy {
 
-    public void ensureNormalResolvable(ShortLink shortLink) {
+    /**
+     * 普通短链和盲盒短链都只有 ACTIVE 状态允许进入解析流程。
+     * 盲盒剩余次数的并发扣减由 tryConsume 继续负责最终判断。
+     */
+    public void ensureResolvable(ShortLink shortLink) {
         if (shortLink.getStatus() == LinkStatus.ACTIVE) {
             return;
         }
         throw failureFor(shortLink);
-    }
-
-    /**
-     * 盲盒次数扣减仍以 CAS 结果为最终依据；本方法只在 CAS 前快速拒绝 BROKEN 短链。
-     */
-    public void ensureBlindNotBroken(ShortLink shortLink) {
-        if (shortLink.getStatus() == LinkStatus.BROKEN) {
-            throw new BrokenLinkException("short link is broken: " + shortLink.getShortCode());
-        }
     }
 
     public boolean isBroken(ShortLink shortLink) {
@@ -32,14 +27,12 @@ public final class LinkStatusPolicy {
 
     public void ensureCanMarkBroken(ShortLink shortLink) {
         if (shortLink.getStatus() == LinkStatus.EXHAUSTED) {
-            throw new BlindBoxExhaustedException(
-                    "exhausted short link cannot be marked broken: " + shortLink.getShortCode());
+            throw new BlindBoxExhaustedException("exhausted short link cannot be marked broken: " + shortLink.getShortCode());
         }
     }
 
     public BlindBoxExhaustedException exhausted(ShortLink shortLink) {
-        return new BlindBoxExhaustedException(
-                "blind-box short link has no remaining times: " + shortLink.getShortCode());
+        return new BlindBoxExhaustedException("blind-box short link has no remaining times: " + shortLink.getShortCode());
     }
 
     public boolean markBrokenIfAllowed(ShortLink shortLink, String reason) {

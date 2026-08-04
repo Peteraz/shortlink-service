@@ -87,7 +87,7 @@ class ShortLinkControllerTest {
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.data.channel").value("default"));
 
-        mockMvc.perform(get("/api/v1/short-links/abc1234"))
+        mockMvc.perform(get("/api/v1/short-links/abc123456"))
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.code").value("INVALID_SHORT_CODE"));
     }

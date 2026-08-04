@@ -30,10 +30,8 @@ public class LinkHealthController {
     /**
      * 单条检测的状态变更由 Service 决定，Controller 不操作领域状态。
      */
-    @PostMapping("/{shortCode}/health-check")
-    public ApiResponse<HealthCheckResponse> healthCheck(
-            @PathVariable String shortCode,
-            @RequestParam(defaultValue = "false") boolean markBroken) {
+    @PostMapping("/health-check/{shortCode}")
+    public ApiResponse<HealthCheckResponse> healthCheck(@PathVariable String shortCode, @RequestParam(defaultValue = "false") boolean markBroken) {
         return ApiResponse.success(linkHealthService.healthCheck(shortCode, markBroken));
     }
 
@@ -41,8 +39,7 @@ public class LinkHealthController {
      * 批量请求只负责接收校验后的参数，线程池由 Service 管理。
      */
     @PostMapping("/batch-health-check")
-    public ApiResponse<List<HealthCheckResponse>> batchHealthCheck(
-            @Valid @RequestBody BatchHealthCheckRequest request) {
+    public ApiResponse<List<HealthCheckResponse>> batchHealthCheck(@Valid @RequestBody BatchHealthCheckRequest request) {
         return ApiResponse.success(linkHealthService.batchHealthCheck(request));
     }
 }

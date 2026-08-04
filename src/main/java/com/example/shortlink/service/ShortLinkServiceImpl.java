@@ -142,7 +142,7 @@ public class ShortLinkServiceImpl implements ShortLinkService {
     }
 
     /**
-     * 规范化 URL 和渠道后，通过业务键原子保证普通短链幂等。
+     * 创建普通短链；相同 URL 和渠道重复提交时返回已有短链。
      */
     @Override
     public ShortLinkResponse createNormalLink(CreateNormalLinkRequest request) {
@@ -156,9 +156,7 @@ public class ShortLinkServiceImpl implements ShortLinkService {
             return getByShortCode(existingCode);
         }
 
-        String shortCode = repository.computeNormalCodeIfAbsent(
-                businessKey,
-                ignored -> createAndStore(normalizedUrl, normalizedChannel));
+        String shortCode = repository.computeNormalCodeIfAbsent(businessKey, ignored -> createAndStore(normalizedUrl, normalizedChannel));
         return getByShortCode(shortCode);
     }
 
@@ -201,7 +199,7 @@ public class ShortLinkServiceImpl implements ShortLinkService {
 
     private ResolveResult resolveNormal(ShortLink shortLink) {
         // 普通短链只有 ACTIVE 状态可解析，计数使用原子自增。
-        linkStatusPolicy.ensureNormalResolvable(shortLink);
+        linkStatusPolicy.ensureResolvable(shortLink);
 
         String targetUrl = shortLink.getOriginalUrls().getFirst();
         shortLink.getResolveCount().incrementAndGet();
@@ -209,16 +207,17 @@ public class ShortLinkServiceImpl implements ShortLinkService {
     }
 
     private ResolveResult resolveBlindBox(ShortLink shortLink) {
-        // BROKEN 在 CAS 前快速失败；EXHAUSTED 仍以 CAS 结果作为最终判断。
-        linkStatusPolicy.ensureBlindNotBroken(shortLink);
+        // 盲盒短链只有 ACTIVE 状态可解析，计数使用原子自增。
+        linkStatusPolicy.ensureResolvable(shortLink);
 
-        // CAS 结果才是最终依据；只检查状态会让并发调用方在最后一次次数消耗后继续解析。
+        // 尝试扣减一次剩余次数。只有成功扣减的请求，才获得本次解析资格。
+        // 并发请求同时争抢最后一次次数时，只有一个请求能够扣减成功。
         if (!shortLink.tryConsume()) {
             shortLink.markExhausted();
             throw linkStatusPolicy.exhausted(shortLink);
         }
 
-        // 只有 CAS 成功后才选择目标，保证每个返回的目标都恰好消耗一次有效次数。
+        // 次数扣减成功后才选择目标并返回，确保每次成功解析都消耗一次次数。
         String targetUrl = blindBoxSelector.select(shortLink.getOriginalUrls());
         shortLink.getResolveCount().incrementAndGet();
         return mapper.toResolveResult(shortLink, targetUrl);
@@ -288,11 +287,7 @@ public class ShortLinkServiceImpl implements ShortLinkService {
     private String createAndStore(String normalizedUrl, String normalizedChannel) {
         for (int attempt = 1; attempt <= MAX_GENERATION_ATTEMPTS; attempt++) {
             String candidateCode = shortCodeGenerator.generate();
-            ShortLink shortLink = ShortLink.normal(
-                    candidateCode,
-                    normalizedUrl,
-                    normalizedChannel,
-                    LocalDateTime.now(clock));
+            ShortLink shortLink = ShortLink.normal(candidateCode, normalizedUrl, normalizedChannel, LocalDateTime.now(clock));
 
             // Repository 原子保留全局短码；返回 false 表示候选短码已被其他短链占用，
             // 因此使用新的候选短码继续重试。
@@ -300,8 +295,7 @@ public class ShortLinkServiceImpl implements ShortLinkService {
                 return candidateCode;
             }
         }
-        throw new ShortCodeGenerationException(
-                "failed to generate a unique short code after " + MAX_GENERATION_ATTEMPTS + " attempts");
+        throw new ShortCodeGenerationException("failed to generate a unique short code after " + MAX_GENERATION_ATTEMPTS + " attempts");
     }
 
     /**
@@ -324,8 +318,7 @@ public class ShortLinkServiceImpl implements ShortLinkService {
                 return candidateCode;
             }
         }
-        throw new ShortCodeGenerationException(
-                "failed to generate a unique short code after " + MAX_GENERATION_ATTEMPTS + " attempts");
+        throw new ShortCodeGenerationException("failed to generate a unique short code after " + MAX_GENERATION_ATTEMPTS + " attempts");
     }
 
     /**
@@ -333,13 +326,10 @@ public class ShortLinkServiceImpl implements ShortLinkService {
      */
     private List<String> normalizeBlindBoxUrls(List<String> originalUrls) {
         if (originalUrls == null || originalUrls.size() < MIN_BLIND_BOX_URLS) {
-            throw new BlindBoxUrlInsufficientException(
-                    "blind-box must contain at least " + MIN_BLIND_BOX_URLS + " URLs");
+            throw new BlindBoxUrlInsufficientException("blind-box must contain at least " + MIN_BLIND_BOX_URLS + " URLs");
         }
         if (originalUrls.size() > MAX_BLIND_BOX_URLS) {
-            throw new BusinessException(
-                    "BLIND_BOX_URL_LIMIT_EXCEEDED",
-                    "blind-box must contain at most " + MAX_BLIND_BOX_URLS + " URLs");
+            throw new BusinessException("BLIND_BOX_URL_LIMIT_EXCEEDED", "blind-box must contain at most " + MAX_BLIND_BOX_URLS + " URLs");
         }
 
         Set<String> seenUrls = new HashSet<>();
@@ -347,8 +337,7 @@ public class ShortLinkServiceImpl implements ShortLinkService {
         for (String originalUrl : originalUrls) {
             String normalizedUrl = urlValidator.validateAndNormalize(originalUrl);
             if (!seenUrls.add(normalizedUrl)) {
-                throw new BlindBoxDuplicateUrlException(
-                        "blind-box original URLs must not contain duplicates");
+                throw new BlindBoxDuplicateUrlException("blind-box original URLs must not contain duplicates");
             }
             normalizedUrls.add(normalizedUrl);
         }
@@ -357,16 +346,13 @@ public class ShortLinkServiceImpl implements ShortLinkService {
 
     private int validateValidTimes(Integer validTimes) {
         if (validTimes == null || validTimes < 1 || validTimes > MAX_VALID_TIMES) {
-            throw new BusinessException(
-                    "INVALID_VALID_TIMES",
-                    "validTimes must be between 1 and " + MAX_VALID_TIMES);
+            throw new BusinessException("INVALID_VALID_TIMES", "validTimes must be between 1 and " + MAX_VALID_TIMES);
         }
         return validTimes;
     }
 
     private ShortLink findByShortCode(String shortCode) {
-        return repository.findByShortCode(shortCode)
-                .orElseThrow(() -> new ShortLinkNotFoundException("short link not found: " + shortCode));
+        return repository.findByShortCode(shortCode).orElseThrow(() -> new ShortLinkNotFoundException("short link not found: " + shortCode));
     }
 
     private int validatePage(int page) {

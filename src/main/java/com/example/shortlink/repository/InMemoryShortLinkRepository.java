@@ -51,22 +51,19 @@ public class InMemoryShortLinkRepository implements ShortLinkRepository {
 
     @Override
     public Optional<String> findNormalCodeByBusinessKey(String businessKey) {
-        return Optional.ofNullable(normalUrlIndex.get(
-                Objects.requireNonNull(businessKey, "businessKey must not be null")));
+        return Optional.ofNullable(normalUrlIndex.get(Objects.requireNonNull(businessKey, "businessKey must not be null")));
     }
 
     /**
-     * 以业务键原子计算普通短链短码，保证并发幂等。
+     * 获取业务键对应的短码。
+     * 如果不存在，则创建短链并保存短码与业务键的映射。
      */
     @Override
-    public String computeNormalCodeIfAbsent(
-            String businessKey,
-            Function<String, String> mappingFunction) {
+    public String computeNormalCodeIfAbsent(String businessKey, Function<String, String> mappingFunction) {
         Objects.requireNonNull(businessKey, "businessKey must not be null");
         Objects.requireNonNull(mappingFunction, "mappingFunction must not be null");
 
-        // ConcurrentHashMap 保证每个业务键只做一次原子映射决策；
-        // 该索引的映射函数必须保持无副作用。
+        // 同一个 businessKey 并发创建时，只允许一个线程执行创建逻辑。
         return normalUrlIndex.computeIfAbsent(businessKey, mappingFunction);
     }
 }

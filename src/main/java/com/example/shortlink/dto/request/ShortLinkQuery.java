@@ -10,19 +10,19 @@ import lombok.Getter;
 public class ShortLinkQuery {
 
     /**
-     * 精确匹配的短码。
+     * 短码
      */
     private final String shortCode;
     /**
-     * 精确匹配的渠道。
+     * 短链的渠道。
      */
     private final String channel;
     /**
-     * 精确匹配的短链状态。
+     * 短链状态。
      */
     private final LinkStatus status;
     /**
-     * 精确匹配的短链类型。
+     * 短链类型。
      */
     private final LinkType type;
     /**

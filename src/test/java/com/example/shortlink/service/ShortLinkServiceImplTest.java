@@ -197,7 +197,7 @@ class ShortLinkServiceImplTest {
                 new ChannelNormalizer(),
                 new NormalLinkBusinessKeyFactory(),
                 new ShortLinkMapper(properties),
-                new ShortCodeValidator(properties),
+                new ShortCodeValidator(),
                 FIXED_CLOCK);
     }
 

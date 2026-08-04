@@ -133,16 +133,12 @@ public class LinkHealthServiceImpl implements LinkHealthService {
 
     private HealthCheckResponse checkLink(ShortLink shortLink, boolean markBroken) {
         // 普通短链只有一个 URL；盲盒检测全部候选，任一可达即可判定整体可达。
-        List<UrlHealthResult> urlResults = shortLink.getOriginalUrls().stream()
-                .map(this::safeCheck)
-                .toList();
+        List<UrlHealthResult> urlResults = shortLink.getOriginalUrls().stream().map(this::safeCheck).toList();
         boolean reachable = urlResults.stream().anyMatch(UrlHealthResult::isReachable);
         LocalDateTime checkedAt = LocalDateTime.now(clock);
         shortLink.markCheckedAt(checkedAt);
 
-        boolean markedBroken = markBroken
-                && !reachable
-                && linkStatusPolicy.markBrokenIfAllowed(shortLink, AUTOMATIC_BROKEN_REASON);
+        boolean markedBroken = markBroken && !reachable && linkStatusPolicy.markBrokenIfAllowed(shortLink, AUTOMATIC_BROKEN_REASON);
         return new HealthCheckResponse(
                 shortLink.getShortCode(),
                 reachable,
