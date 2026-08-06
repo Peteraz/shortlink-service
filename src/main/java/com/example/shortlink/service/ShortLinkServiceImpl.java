@@ -239,7 +239,6 @@ public class ShortLinkServiceImpl implements ShortLinkService {
             if (linkStatusPolicy.isBroken(shortLink)) {
                 return mapper.toResponse(shortLink);
             }
-            linkStatusPolicy.ensureCanMarkBroken(shortLink);
             shortLink.markBroken(normalizedReason);
             return mapper.toResponse(shortLink);
         });

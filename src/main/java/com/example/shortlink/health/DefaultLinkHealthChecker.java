@@ -68,9 +68,7 @@ public class DefaultLinkHealthChecker implements LinkHealthChecker {
                     .timeout(requestTimeout)
                     .method("HEAD", HttpRequest.BodyPublishers.noBody())
                     .build();
-            HttpResponse<Void> headResponse = httpClient.send(
-                    headRequest,
-                    HttpResponse.BodyHandlers.discarding());
+            HttpResponse<Void> headResponse = httpClient.send(headRequest, HttpResponse.BodyHandlers.discarding());
             if (headResponse.statusCode() == METHOD_NOT_ALLOWED) {
                 return checkWithGet(uri, url, startedAt);
             }
@@ -129,12 +127,7 @@ public class DefaultLinkHealthChecker implements LinkHealthChecker {
                 : "HTTP status " + statusCode + " is not reachable";
     }
 
-    private UrlHealthResult result(
-            String url,
-            boolean reachable,
-            Integer httpStatus,
-            String message,
-            long startedAt) {
+    private UrlHealthResult result(String url, boolean reachable, Integer httpStatus, String message, long startedAt) {
         long elapsedMillis = Duration.ofNanos(System.nanoTime() - startedAt).toMillis();
         return new UrlHealthResult(url, reachable, httpStatus, message, elapsedMillis);
     }
