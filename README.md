@@ -112,7 +112,11 @@ mvn spring-boot:run
 
 默认端口为 `8090`。
 
-项目可以直接使用 `mvn spring-boot:run` 启动；也可以先执行 `mvn package`，再运行 `target/shortlink-service-0.0.1-SNAPSHOT.jar`。
+项目可以直接使用 `mvn spring-boot:run` 启动；也可以先执行 `mvn package`，再运行：
+
+```bash
+java -jar target/shortlink-service-0.0.1-SNAPSHOT.jar
+```
 
 ## curl 示例
 
