@@ -4,8 +4,6 @@ import org.springframework.scheduling.concurrent.ThreadPoolTaskExecutor;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 
-import java.net.http.HttpClient;
-import java.time.Duration;
 import java.time.Clock;
 
 @Configuration(proxyBeanMethods = false)
@@ -14,18 +12,6 @@ public class ShortLinkConfiguration {
     @Bean
     public Clock shortLinkClock() {
         return Clock.systemDefaultZone();
-    }
-
-    /**
-     * 创建复用的 HttpClient。
-     * 健康检测不跟随重定向，避免外部 URL 将请求跳转到受限网络地址。
-     */
-    @Bean(name = "healthCheckHttpClient")
-    public HttpClient healthCheckHttpClient(HealthCheckProperties properties) {
-        return HttpClient.newBuilder()
-                .connectTimeout(Duration.ofMillis(properties.getConnectTimeoutMillis()))
-                .followRedirects(HttpClient.Redirect.NEVER)
-                .build();
     }
 
     /**

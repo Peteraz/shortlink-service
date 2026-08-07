@@ -10,11 +10,11 @@ import org.junit.jupiter.api.Test;
 
 import java.io.IOException;
 import java.io.OutputStream;
+import java.net.InetAddress;
 import java.net.InetSocketAddress;
 import java.net.ServerSocket;
+import java.net.Socket;
 import java.net.URI;
-import java.net.http.HttpClient;
-import java.time.Duration;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
@@ -114,6 +114,37 @@ class LinkHealthCheckerTest {
     }
 
     @Test
+    void shouldReturnUnreachableWhenTlsHandshakeTimesOut() throws Exception {
+        try (ServerSocket stalledTlsServer = new ServerSocket(0)) {
+            Thread serverThread = new Thread(() -> {
+                try (Socket ignored = stalledTlsServer.accept()) {
+                    timeoutRelease.await(5, TimeUnit.SECONDS);
+                } catch (IOException exception) {
+                    throw new AssertionError(exception);
+                } catch (InterruptedException exception) {
+                    Thread.currentThread().interrupt();
+                }
+            });
+            serverThread.start();
+
+            try {
+                DefaultLinkHealthChecker checker = checker(new AllowAllAddressPolicy(), 100);
+
+                UrlHealthResult result = checker.check(
+                        "https://127.0.0.1:" + stalledTlsServer.getLocalPort() + "/");
+
+                assertFalse(result.isReachable());
+                assertTrue(result.getMessage().contains("timed out"));
+            } finally {
+                timeoutRelease.countDown();
+                serverThread.join(1_000);
+            }
+
+            assertFalse(serverThread.isAlive());
+        }
+    }
+
+    @Test
     void shouldReturnUnreachableWhenConnectionFails() throws IOException {
         int unusedPort;
         try (ServerSocket socket = new ServerSocket(0)) {
@@ -136,15 +167,43 @@ class LinkHealthCheckerTest {
         assertTrue(result.getMessage().contains("SSRF security policy"));
     }
 
+    @Test
+    void shouldTryNextResolvedAddressWhenTheFirstAddressFails() throws Exception {
+        DefaultLinkHealthChecker checker = checker(new AllowAllAddressPolicy(), 500);
+        String targetUrl = url("/ok");
+
+        UrlHealthResult result = checker.checkResolvedAddresses(
+                targetUrl,
+                URI.create(targetUrl),
+                new InetAddress[]{
+                        InetAddress.getByName("127.0.0.2"),
+                        InetAddress.getByName("127.0.0.1")
+                },
+                System.nanoTime());
+
+        assertTrue(result.isReachable());
+        assertEquals(200, result.getHttpStatus());
+    }
+
+    @Test
+    void shouldFormatIpv6HostHeaderWithOnePairOfBrackets() {
+        assertEquals(
+                "[2001:db8::1]:8443",
+                DefaultLinkHealthChecker.hostHeader(URI.create("http://[2001:db8::1]:8443/")));
+    }
+
+    @Test
+    void shouldPercentEncodeNonAsciiRequestTarget() {
+        assertEquals(
+                "/%E4%BD%A0%E5%A5%BD?q=%E4%B8%96%E7%95%8C",
+                DefaultLinkHealthChecker.requestTarget(URI.create("http://example.com/\u4f60\u597d?q=\u4e16\u754c")));
+    }
+
     private DefaultLinkHealthChecker checker(AddressPolicy addressPolicy, int requestTimeoutMillis) {
         HealthCheckProperties properties = new HealthCheckProperties();
         properties.setConnectTimeoutMillis(200);
         properties.setRequestTimeoutMillis(requestTimeoutMillis);
-        HttpClient client = HttpClient.newBuilder()
-                .connectTimeout(Duration.ofMillis(properties.getConnectTimeoutMillis()))
-                .followRedirects(HttpClient.Redirect.NEVER)
-                .build();
-        return new DefaultLinkHealthChecker(client, addressPolicy, properties);
+        return new DefaultLinkHealthChecker(addressPolicy, properties);
     }
 
     private String url(String path) {
@@ -169,6 +228,11 @@ class LinkHealthCheckerTest {
         @Override
         public void validate(URI uri) {
             // 本地 HttpServer 端点仅在测试中按策略放行。
+        }
+
+        @Override
+        public void validateResolvedAddresses(InetAddress... addresses) {
+            // 本地回环地址仅在测试中按策略放行。
         }
     }
 }

@@ -4,8 +4,10 @@ import org.springframework.stereotype.Component;
 
 import java.net.InetAddress;
 import java.net.URI;
-import java.net.UnknownHostException;
 
+/**
+ * 默认 SSRF 安全策略：仅允许 HTTP/HTTPS，且目标地址不得为本机或内网地址。
+ */
 @Component
 public class DefaultAddressPolicy implements AddressPolicy {
 
@@ -15,7 +17,9 @@ public class DefaultAddressPolicy implements AddressPolicy {
     private static final String BLOCKED_MESSAGE = "request blocked by SSRF security policy";
 
     /**
-     * 解析 host 对应的全部 IP。只要其中一个地址受限，就拒绝请求；无法确认安全时同样拒绝。
+     * 校验协议与 host 字符串，不执行 DNS 解析。
+     * 只放行 HTTP/HTTPS，并拒绝明显的 localhost 字样；
+     * host 指向的具体地址是否安全，由 {@link #validateResolvedAddresses} 在解析后判断。
      */
     @Override
     public void validate(URI uri) {
@@ -31,21 +35,20 @@ public class DefaultAddressPolicy implements AddressPolicy {
         if ("localhost".equalsIgnoreCase(host.trim())) {
             throw new AddressPolicyViolationException(BLOCKED_MESSAGE);
         }
+    }
 
-        String lookupHost = host.startsWith("[") && host.endsWith("]")
-                ? host.substring(1, host.length() - 1)
-                : host;
-        InetAddress[] addresses;
-        try {
-            addresses = InetAddress.getAllByName(lookupHost);
-        } catch (UnknownHostException exception) {
-            throw new AddressPolicyViolationException("DNS resolution failed");
+    /**
+     * 校验 DNS 解析返回的全部地址。只要其中一个地址受限，就拒绝请求；无法确认安全时同样拒绝。
+     */
+    @Override
+    public void validateResolvedAddresses(InetAddress... addresses) {
+        if (addresses == null || addresses.length == 0) {
+            throw new AddressPolicyViolationException(BLOCKED_MESSAGE);
         }
-
         // 不能只根据用户传入的 host 判断安全，必须检查 DNS 返回的每个地址。
         // 只要任一地址属于本机或内网地址，就拒绝整个请求。
         for (InetAddress address : addresses) {
-            if (isBlocked(address)) {
+            if (address == null || isBlocked(address)) {
                 throw new AddressPolicyViolationException(BLOCKED_MESSAGE);
             }
         }
@@ -57,7 +60,13 @@ public class DefaultAddressPolicy implements AddressPolicy {
                 || address.isLinkLocalAddress()
                 || address.isSiteLocalAddress()
                 || address.isMulticastAddress()
+                || isIpv6UniqueLocalAddress(address)
                 || isIpv4MappedPrivateAddress(address);
+    }
+
+    private boolean isIpv6UniqueLocalAddress(InetAddress address) {
+        byte[] bytes = address.getAddress();
+        return bytes.length == 16 && (Byte.toUnsignedInt(bytes[0]) & 0xfe) == 0xfc;
     }
 
     private boolean isIpv4MappedPrivateAddress(InetAddress address) {
