@@ -6,7 +6,7 @@
 
 - Spring Web、Jakarta Validation、JUnit 5、Spring MockMvc
 - `ConcurrentHashMap` 内存存储
-- Java 原生 `java.net.http.HttpClient`
+- Java 原生 `Socket`/`SSLSocket` 健康检测
 - Base62 短码，默认 7 位，支持配置 6、7、8 位
 - 普通短链使用 `normalizedUrl + "|" + normalizedChannel` 幂等
 - 盲盒在每条短链的状态锁内扣减有效次数
@@ -20,7 +20,7 @@
 
 ```text
 src/main/java/com/example/shortlink
-├── config        配置、HttpClient 和健康检测线程池
+├── config        配置和健康检测线程池
 ├── controller    HTTP 接口
 ├── domain        短链领域对象和状态
 ├── dto           请求和响应 DTO
@@ -70,7 +70,7 @@ GET   /api/health
 
 除跳转接口和 `GET /api/health` 外，接口成功响应使用 `ApiResponse`（`code`、`message`、`data`、`timestamp`）。已明确处理的请求或业务校验错误返回 HTTP 400；单条操作中的短码不存在返回 404；断链或盲盒耗尽返回 410；不支持的 HTTP Method 返回 405；不支持的 Content-Type 返回 415；短码生成重试耗尽或未预期异常返回 500。批量健康检测中的不存在短码不会中断请求，而是作为 HTTP 200 响应中的单条失败结果返回。
 
-健康检测使用 Java 21 原生 `java.net.http.HttpClient`。单条检测先发送 HEAD，收到 405 时降级为 GET；2xx 和 3xx 视为可达，客户端不自动跟随重定向。默认连接超时为 2 秒、单次请求超时为 3 秒。
+健康检测使用 Java 原生 `Socket`/`SSLSocket`：先解析并校验全部 DNS 地址，再固定到已校验的 IP 发起连接。单条检测先发送 HEAD，收到 405 时降级为 GET；2xx 和 3xx 视为可达，检测器不自动跟随重定向。默认连接超时为 2 秒、单次请求超时为 3 秒。
 
 当 `markBroken=true` 时，只有所有原始 URL 都不可达、短链当前仍为 `ACTIVE`，且检测器自身没有抛出内部异常，才会自动标记断链。检测器内部异常会在对应的 `urlResults` 中记录为 `health check failed`，但不会改变短链状态。
 
@@ -161,7 +161,7 @@ curl "http://localhost:8090/api/v1/short-links/queryByPage?channel=wechat&status
 
 ## SSRF 安全说明
 
-健康检测只允许 HTTP/HTTPS，并解析 host 后拒绝 `localhost`、回环、链路本地、site-local、组播、未指定及受限 IPv4-mapped 地址。DNS 失败返回不可达，不暴露服务器网络信息。HttpClient 不自动跟随重定向，3xx 只表示原目标可达。
+健康检测只允许 HTTP/HTTPS，并解析 host 后拒绝 `localhost`、回环、链路本地、site-local、组播、未指定及受限 IPv4-mapped 地址。DNS 失败返回不可达，不暴露服务器网络信息。检测器不自动跟随重定向，3xx 只表示原目标可达。
 
 ## 当前局限
 
