@@ -11,7 +11,7 @@ public class HealthCheckProperties {
 
     private static final int DEFAULT_CONNECT_TIMEOUT_MILLIS = 2_000;
     private static final int DEFAULT_REQUEST_TIMEOUT_MILLIS = 3_000;
-    private static final int DEFAULT_BATCH_TIMEOUT_MILLIS = 15_000;
+    private static final int DEFAULT_BATCH_TIMEOUT_MILLIS = 8_000;
     private static final int DEFAULT_URL_PROBE_POOL_SIZE = 16;
     private static final int DEFAULT_URL_PROBE_QUEUE_CAPACITY = 64;
     private static final int DEFAULT_DNS_RESOLVER_POOL_SIZE = 4;

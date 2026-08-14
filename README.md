@@ -75,9 +75,9 @@ GET   /api/health
 
 健康检测请求体中的 `markBroken` 为可选布尔值，未传时默认为 `false`。当它为 `true` 时，只有所有原始 URL 都不可达、短链当前仍为 `ACTIVE`，且检测器自身没有抛出内部异常，才会自动标记断链。检测器内部异常会在对应的 `urlResults` 中记录为 `health check failed`，但不会改变短链状态。
 
-单条健康检测请求体使用 `shortUrl`，批量检测使用 `shortUrls`；二者均可携带 `markBroken`，未传时默认 `false`。短链均须为完整 URL，控制器从路径最后一段提取短码后再进入内部检测。批量列表不能为空，最多接受 20 条短链（按请求原始列表计数），且展开普通/盲盒配置后最多允许探测 64 个原始 URL；超过任一上限直接返回 HTTP 400。每条提取出的短码都必须是 6 到 8 位 Base62 字符，通过校验后按首次出现顺序去重。
+单条健康检测请求体使用 `shortUrl`，批量检测使用 `shortUrls`；二者均可携带 `markBroken`，未传时默认 `false`。短链均须为完整 URL，控制器从路径最后一段提取短码后再进入内部检测。批量列表不能为空，最多接受 20 条短链（按请求原始列表计数），且展开普通/盲盒配置后最多允许探测 32 个原始 URL；超过任一上限直接返回 HTTP 400。每条提取出的短码都必须是 6 到 8 位 Base62 字符，通过校验后按首次出现顺序去重。
 
-全部原始 URL 统一提交到固定 16 线程、队列容量 64 的有界探测池，不再使用外层批量线程池；同一批次完全相同的 URL 只探测一次，再把结果回填给相关短链。同步批量请求共用 15 秒绝对截止时间，超时任务作为 `health check incomplete` 返回且不会触发自动断链。队列饱和使用快速拒绝而不是 `CallerRunsPolicy`，避免 Web 请求线程被迫执行慢网络任务。DNS 解析另用固定 4 线程、队列 64 的隔离池，避免平台 DNS 阻塞拖垮 URL 探测池。
+全部原始 URL 统一提交到固定 16 线程、队列容量 64 的有界探测池，不再使用外层批量线程池；同一批次完全相同的 URL 只探测一次，再把结果回填给相关短链。同步批量请求共用 8 秒绝对截止时间，32 个 URL 最多形成两个探测波次，理论最坏探测时间约 6 秒，并为调度和结果聚合保留约 2 秒余量。超时任务作为 `health check incomplete` 返回且不会触发自动断链。队列饱和使用快速拒绝而不是 `CallerRunsPolicy`，避免 Web 请求线程被迫执行慢网络任务。DNS 解析另用固定 4 线程、队列 64 的隔离池，避免平台 DNS 阻塞拖垮 URL 探测池。
 
 健康检测会在请求前解析域名并拒绝 `localhost`、回环、链路本地、site-local、组播、未指定及受限 IPv4-mapped 地址。DNS 解析失败也会作为不可达结果返回，不向客户端暴露服务器网络信息。
 
@@ -94,7 +94,7 @@ short-link:
   health-check:
     connect-timeout-millis: 2000
     request-timeout-millis: 3000
-    batch-timeout-millis: 15000
+    batch-timeout-millis: 8000
     url-probe-pool-size: 16
     url-probe-queue-capacity: 64
     dns-resolver-pool-size: 4

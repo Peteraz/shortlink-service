@@ -226,20 +226,25 @@ class LinkHealthServicePhaseFiveTest {
     }
 
     @Test
-    void shouldRejectBatchWhoseConfiguredUrlsExceedProbeLimitBeforeSubmittingTasks() {
+    void shouldAcceptBatchContainingExactlyThirtyTwoConfiguredUrls() {
         InMemoryShortLinkRepository repository = new InMemoryShortLinkRepository();
-        List<String> shortCodes = new java.util.ArrayList<>();
-        for (int linkIndex = 0; linkIndex < 7; linkIndex++) {
-            int currentLinkIndex = linkIndex;
-            String shortCode = String.format("b%05d", linkIndex);
-            List<String> urls = java.util.stream.IntStream.range(0, 10)
-                    .mapToObj(urlIndex -> "https://example.com/" + currentLinkIndex + "/" + urlIndex)
-                    .toList();
-            repository.saveIfAbsent(shortCode, ShortLink.blindBox(
-                    shortCode, urls, "wechat",
-                    FIXED_CLOCK.instant().atZone(ZoneOffset.UTC).toLocalDateTime(), 10));
-            shortCodes.add(shortCode);
-        }
+        List<String> shortCodes = saveLinksWithTotalUrlCount(repository, 32);
+        AtomicInteger checks = new AtomicInteger();
+        LinkHealthService service = createService(repository, url -> {
+            checks.incrementAndGet();
+            return new UrlHealthResult(url, true, 200, "ok", 1);
+        });
+
+        List<HealthCheckResponse> responses = service.batchHealthCheck(shortCodes, false);
+
+        assertEquals(shortCodes.size(), responses.size());
+        assertEquals(32, checks.get());
+    }
+
+    @Test
+    void shouldRejectBatchContainingThirtyThreeConfiguredUrlsBeforeSubmittingTasks() {
+        InMemoryShortLinkRepository repository = new InMemoryShortLinkRepository();
+        List<String> shortCodes = saveLinksWithTotalUrlCount(repository, 33);
         AtomicInteger checks = new AtomicInteger();
         LinkHealthService service = createService(repository, url -> {
             checks.incrementAndGet();
@@ -334,6 +339,37 @@ class LinkHealthServicePhaseFiveTest {
                 urlProbeExecutor,
                 FIXED_CLOCK,
                 properties);
+    }
+
+    private List<String> saveLinksWithTotalUrlCount(
+            InMemoryShortLinkRepository repository, int totalUrlCount) {
+        List<String> shortCodes = new java.util.ArrayList<>();
+        int remainingUrlCount = totalUrlCount;
+        int linkIndex = 0;
+        while (remainingUrlCount > 0) {
+            int candidateCount = Math.min(10, remainingUrlCount);
+            String shortCode = String.format("b%05d", linkIndex);
+            if (candidateCount == 1) {
+                repository.saveIfAbsent(shortCode, ShortLink.normal(
+                        shortCode,
+                        "https://example.com/" + linkIndex + "/0",
+                        "wechat",
+                        FIXED_CLOCK.instant().atZone(ZoneOffset.UTC).toLocalDateTime()));
+            } else {
+                int currentLinkIndex = linkIndex;
+                List<String> urls = java.util.stream.IntStream.range(0, candidateCount)
+                        .mapToObj(urlIndex ->
+                                "https://example.com/" + currentLinkIndex + "/" + urlIndex)
+                        .toList();
+                repository.saveIfAbsent(shortCode, ShortLink.blindBox(
+                        shortCode, urls, "wechat",
+                        FIXED_CLOCK.instant().atZone(ZoneOffset.UTC).toLocalDateTime(), 10));
+            }
+            shortCodes.add(shortCode);
+            remainingUrlCount -= candidateCount;
+            linkIndex++;
+        }
+        return List.copyOf(shortCodes);
     }
 
     private void await(CountDownLatch latch) {

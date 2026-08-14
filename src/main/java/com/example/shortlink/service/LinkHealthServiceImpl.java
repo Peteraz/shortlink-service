@@ -38,7 +38,7 @@ public class LinkHealthServiceImpl implements LinkHealthService {
     /**
      * 单次批量请求展开后允许探测的原始 URL 总数，按短链配置计数而不是去重后计数。
      */
-    private static final int MAX_BATCH_PROBE_URLS = 64;
+    private static final int MAX_BATCH_PROBE_URLS = 32;
     private static final String AUTOMATIC_BROKEN_REASON =
             "automatic health check: all original URLs are unreachable";
 
