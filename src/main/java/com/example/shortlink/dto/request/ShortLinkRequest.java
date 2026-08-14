@@ -8,7 +8,7 @@ import lombok.NoArgsConstructor;
 @Data
 @NoArgsConstructor
 @AllArgsConstructor
-public class ResolveRequest {
+public class ShortLinkRequest {
     /**
      * 短链。
      */

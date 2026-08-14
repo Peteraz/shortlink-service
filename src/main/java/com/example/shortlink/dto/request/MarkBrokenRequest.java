@@ -1,11 +1,18 @@
 package com.example.shortlink.dto.request;
 
+import jakarta.validation.constraints.NotBlank;
 import lombok.Data;
 import lombok.NoArgsConstructor;
 
 @Data
 @NoArgsConstructor
 public class MarkBrokenRequest {
+
+    /**
+     * 需要主动断链的完整短链。
+     */
+    @NotBlank(message = "短链不能为空")
+    private String shortUrl;
 
     /**
      * 主动断链原因，保存前会去除首尾空格。

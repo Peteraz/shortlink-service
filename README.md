@@ -52,9 +52,9 @@ src/main/java/com/example/shortlink
 ```text
 POST  /api/v1/short-links/normal
 POST  /api/v1/short-links/blind-box
-GET   /api/v1/short-links/query/{shortCode}
+POST  /api/v1/short-links/query
 POST  /api/v1/short-links/resolve
-PATCH /api/v1/short-links/broken/{shortCode}
+POST  /api/v1/short-links/broken
 GET   /api/v1/short-links/queryByPage?shortCode=&channel=&status=&type=&page=0&size=20
 POST  /api/v1/short-links/health-check/{shortCode}?markBroken=false
 POST  /api/v1/short-links/batch-health-check
@@ -63,7 +63,7 @@ GET   /api/v1/redirect/s/{shortCode} (兼容入口)
 GET   /api/health
 ```
 
-`GET /api/v1/short-links/query/{shortCode}` 只查询详情，不增加解析次数。
+`POST /api/v1/short-links/query` 接收完整短链，只查询详情，不增加解析次数或消耗盲盒次数。
 `POST /api/v1/short-links/resolve` 接收完整短链并返回 JSON 解析详情；`GET /s/{shortCode}` 会执行真实解析并跳转。
 
 短链状态只有 `ACTIVE` 和 `BROKEN`。盲盒最后一次成功解析会将剩余次数扣为 0 并标记为 `BROKEN`；该次解析仍成功返回，后续解析返回 HTTP 410，业务码为 `BLIND_BOX_EXHAUSTED`。其他断链的后续解析返回 HTTP 410，业务码为 `BROKEN_LINK`。
@@ -128,14 +128,14 @@ curl -X POST "http://localhost:8090/api/v1/short-links/normal" -H "Content-Type:
 curl -X POST "http://localhost:8090/api/v1/short-links/blind-box" -H "Content-Type: application/json" -d '{"originalUrls":["https://example.com/a","https://example.com/b"],"channel":"wechat","validTimes":100}'
 
 # 查询详情和按完整短链执行解析
-curl "http://localhost:8090/api/v1/short-links/query/abc123"
+curl -X POST "http://localhost:8090/api/v1/short-links/query" -H "Content-Type: application/json" -d '{"shortUrl":"http://localhost:8090/s/abc123"}'
 curl -X POST "http://localhost:8090/api/v1/short-links/resolve" -H "Content-Type: application/json" -d '{"shortUrl":"http://localhost:8090/s/abc123"}'
 
 # 短链跳转，Location 在响应头中
 curl -i "http://localhost:8090/s/abc123"
 
 # 主动标记断链
-curl -X PATCH "http://localhost:8090/api/v1/short-links/broken/abc123" -H "Content-Type: application/json" -d '{"reason":"运营人员主动下线"}'
+curl -X POST "http://localhost:8090/api/v1/short-links/broken" -H "Content-Type: application/json" -d '{"shortUrl":"http://localhost:8090/s/abc123","reason":"运营人员主动下线"}'
 
 # 检测单条短链，不改变状态
 curl -X POST "http://localhost:8090/api/v1/short-links/health-check/abc123"
