@@ -57,8 +57,9 @@ public class ShortLinkController {
     /**
      * 查询短链详情，不会触发解析。
      */
-    @GetMapping("/query/{shortCode}")
-    public ApiResponse<ShortLinkResponse> getByShortCode(@PathVariable String shortCode) {
+    @PostMapping("/query")
+    public ApiResponse<ShortLinkResponse> getByShortCode(@Valid @RequestBody ResolveRequest request) {
+        String shortCode = shortUrlParser.extractShortCode(request.getShortUrl());
         return ApiResponse.success(shortLinkService.getByShortCode(shortCode));
     }
 
