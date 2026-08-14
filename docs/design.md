@@ -83,7 +83,7 @@ Repository 使用 `ConcurrentHashMap` 保存短链，并返回集合副本；领
 
 ## 7. HTTP 跳转和状态
 
-`GET /s/{shortCode}` 是对外短链地址，`GET /api/v1/redirect/s/{shortCode}` 是兼容跳转入口；两者都会调用解析服务，成功时返回 HTTP 302 和 `Location`。`GET /api/v1/short-links/resolve/{shortCode}` 也会执行真实解析，但以 JSON 返回解析详情。普通短链返回唯一 URL；盲盒先消耗次数，再随机返回 URL；成功解析后在该短链的状态锁内增加访问次数。
+`GET /s/{shortCode}` 是对外短链地址，`GET /api/v1/redirect/s/{shortCode}` 是兼容跳转入口；两者都会调用解析服务，成功时返回 HTTP 302 和 `Location`。`POST /api/v1/short-links/resolve` 接收完整短链 URL，从其路径最后一段提取短码，并以 JSON 返回解析详情；提取出的短码仍需通过 6 到 8 位 Base62 校验。普通短链返回唯一 URL；盲盒先消耗次数，再随机返回 URL；成功解析后在该短链的状态锁内增加访问次数。
 
 状态规则集中在 `LinkStatusPolicy`：
 

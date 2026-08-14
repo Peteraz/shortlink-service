@@ -3,6 +3,7 @@ package com.example.shortlink.controller;
 import com.example.shortlink.dto.request.CreateBlindBoxLinkRequest;
 import com.example.shortlink.dto.request.CreateNormalLinkRequest;
 import com.example.shortlink.dto.request.MarkBrokenRequest;
+import com.example.shortlink.dto.request.ResolveRequest;
 import com.example.shortlink.dto.request.ShortLinkQuery;
 import com.example.shortlink.dto.response.ApiResponse;
 import com.example.shortlink.dto.response.PageResponse;
@@ -11,6 +12,8 @@ import com.example.shortlink.dto.response.ShortLinkResponse;
 import com.example.shortlink.domain.LinkStatus;
 import com.example.shortlink.domain.LinkType;
 import com.example.shortlink.service.ShortLinkService;
+import com.example.shortlink.validator.ShortUrlParser;
+import jakarta.validation.Valid;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PatchMapping;
@@ -28,9 +31,11 @@ public class ShortLinkController {
      * 短链创建、查询、解析和断链服务。
      */
     private final ShortLinkService shortLinkService;
+    private final ShortUrlParser shortUrlParser;
 
-    public ShortLinkController(ShortLinkService shortLinkService) {
+    public ShortLinkController(ShortLinkService shortLinkService, ShortUrlParser shortUrlParser) {
         this.shortLinkService = shortLinkService;
+        this.shortUrlParser = shortUrlParser;
     }
 
     /**
@@ -58,10 +63,11 @@ public class ShortLinkController {
     }
 
     /**
-     * 根据短码解析详情，普通短码计数增加、盲盒短码次数消耗。
+     * 根据完整短链解析详情，普通短链计数增加、盲盒短链次数消耗。
      */
-    @GetMapping("/resolve/{shortCode}")
-    public ApiResponse<ResolveResponse> resolve(@PathVariable String shortCode) {
+    @PostMapping("/resolve")
+    public ApiResponse<ResolveResponse> resolve(@Valid @RequestBody ResolveRequest request) {
+        String shortCode = shortUrlParser.extractShortCode(request.getShortUrl());
         return ApiResponse.success(shortLinkService.resolve(shortCode));
     }
 

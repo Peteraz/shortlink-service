@@ -53,7 +53,7 @@ src/main/java/com/example/shortlink
 POST  /api/v1/short-links/normal
 POST  /api/v1/short-links/blind-box
 GET   /api/v1/short-links/query/{shortCode}
-GET   /api/v1/short-links/resolve/{shortCode}
+POST  /api/v1/short-links/resolve
 PATCH /api/v1/short-links/broken/{shortCode}
 GET   /api/v1/short-links/queryByPage?shortCode=&channel=&status=&type=&page=0&size=20
 POST  /api/v1/short-links/health-check/{shortCode}?markBroken=false
@@ -64,7 +64,7 @@ GET   /api/health
 ```
 
 `GET /api/v1/short-links/query/{shortCode}` 只查询详情，不增加解析次数。
-`GET /api/v1/short-links/resolve/{shortCode}` 和 `GET /s/{shortCode}` 会执行真实解析。
+`POST /api/v1/short-links/resolve` 接收完整短链并返回 JSON 解析详情；`GET /s/{shortCode}` 会执行真实解析并跳转。
 
 短链状态只有 `ACTIVE` 和 `BROKEN`。盲盒最后一次成功解析会将剩余次数扣为 0 并标记为 `BROKEN`；该次解析仍成功返回，后续解析返回 HTTP 410，业务码为 `BLIND_BOX_EXHAUSTED`。其他断链的后续解析返回 HTTP 410，业务码为 `BROKEN_LINK`。
 
@@ -127,9 +127,9 @@ curl -X POST "http://localhost:8090/api/v1/short-links/normal" -H "Content-Type:
 # 盲盒短链生成
 curl -X POST "http://localhost:8090/api/v1/short-links/blind-box" -H "Content-Type: application/json" -d '{"originalUrls":["https://example.com/a","https://example.com/b"],"channel":"wechat","validTimes":100}'
 
-# 查询详情和执行解析
+# 查询详情和按完整短链执行解析
 curl "http://localhost:8090/api/v1/short-links/query/abc123"
-curl "http://localhost:8090/api/v1/short-links/resolve/abc123"
+curl -X POST "http://localhost:8090/api/v1/short-links/resolve" -H "Content-Type: application/json" -d '{"shortUrl":"http://localhost:8090/s/abc123"}'
 
 # 短链跳转，Location 在响应头中
 curl -i "http://localhost:8090/s/abc123"

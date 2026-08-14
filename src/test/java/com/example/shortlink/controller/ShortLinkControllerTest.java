@@ -148,7 +148,7 @@ class ShortLinkControllerTest {
     }
 
     @Test
-    void shouldResolveBlindBoxThroughDetailAndConsumeOneTime() throws Exception {
+    void shouldResolveBlindBoxThroughFullShortUrlAndConsumeOneTime() throws Exception {
         String response = mockMvc.perform(post("/api/v1/short-links/blind-box")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("""
@@ -172,11 +172,22 @@ class ShortLinkControllerTest {
                 .andExpect(jsonPath("$.data.resolveCount").value(0))
                 .andExpect(jsonPath("$.data.remainingTimes").value(3));
 
-        mockMvc.perform(get("/api/v1/short-links/resolve/{shortCode}", shortCode))
+        mockMvc.perform(post("/api/v1/short-links/resolve")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"shortUrl\":\"http://localhost:8090/s/" + shortCode + "\"}"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.data.targetUrl").isString())
                 .andExpect(jsonPath("$.data.resolveCount").value(1))
                 .andExpect(jsonPath("$.data.remainingTimes").value(2));
+    }
+
+    @Test
+    void shouldRejectResolveUrlWithoutShortCode() throws Exception {
+        mockMvc.perform(post("/api/v1/short-links/resolve")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"shortUrl\":\"http://localhost:8090/\"}"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value("INVALID_URL"));
     }
 
     @Test
