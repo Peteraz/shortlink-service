@@ -71,6 +71,8 @@ public class GlobalExceptionHandler {
     public ResponseEntity<ApiResponse<Void>> handleBusiness(BusinessException exception) {
         HttpStatus status = exception instanceof ShortLinkNotFoundException
                 ? HttpStatus.NOT_FOUND
+                : exception instanceof HealthCheckBusyException
+                ? HttpStatus.SERVICE_UNAVAILABLE
                 : exception instanceof ShortCodeGenerationException
                 ? HttpStatus.INTERNAL_SERVER_ERROR
                 : exception instanceof BrokenLinkException

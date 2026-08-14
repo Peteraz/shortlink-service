@@ -38,7 +38,7 @@ normalizedUrl + "|" + normalizedChannel
 
 URL 会去除首尾空格，并校验为长度不超过 2048、包含 host 的 HTTP/HTTPS URI。规范化时仅将 scheme 和 host 转为小写，IPv6 保留单层方括号；路径、查询参数、片段、用户信息和端口保持原样。渠道未传或空白时统一为 `default`；非空渠道最多 64 个字符，只允许 Unicode 字母、数字、下划线和连字符。
 
-盲盒候选 URL 数量必须在 2 到 100 之间，且规范化后不得重复；`validTimes` 必须在 1 到 1,000,000 之间。
+盲盒候选 URL 数量必须在 2 到 10 之间，且规范化后不得重复；`validTimes` 必须在 1 到 1,000,000 之间。上限 10 是同步健康检测的容量保护：盲盒检测需要返回全部候选 URL 明细，过大的盲盒会直接放大网络任务数和最坏响应时间。
 
 ## 4. 访问计数和盲盒次数
 
@@ -79,7 +79,7 @@ Repository 使用 `ConcurrentHashMap` 保存短链，并返回集合副本；领
 
 条件查询当前执行内存全量扫描、过滤、排序和分页，复杂度约为 O(n)。随着短链数量增长，查询耗时和内存开销会增加；生产环境应将过滤、排序和分页下推到带索引的数据库或搜索引擎。
 
-`POST /api/v1/short-links/query` 接收完整短链 URL，从路径最后一段提取短码后只查询详情，不增加解析次数或消耗盲盒次数。条件查询的 `page` 从 0 开始，`size` 为 1 到 100；主动断链原因去除首尾空格后必须为 1 到 200 个字符。其他按短码操作的请求仍要求短码为 6 到 8 位 Base62 字符。
+`POST /api/v1/short-links/query` 接收完整短链 URL，从路径最后一段提取短码后只查询详情，不增加解析次数或消耗盲盒次数。`GET /api/v1/short-links/queryByPage` 的可选 `shortUrl` 条件同样接收完整短链 URL；未传时不按短链过滤，仍可单独按渠道、状态、类型查询。`POST /api/v1/short-links/health-check` 的请求体接收 `shortUrl` 和可选的 `markBroken`，`POST /api/v1/short-links/batch-health-check` 的请求体接收 `shortUrls` 和可选的 `markBroken`；未传 `markBroken` 时为 `false`，二者均在控制器提取短码后调用内部检测服务。条件查询的 `page` 从 0 开始，`size` 为 1 到 100；主动断链原因去除首尾空格后必须为 1 到 200 个字符。
 
 ## 7. HTTP 跳转和状态
 
@@ -93,13 +93,13 @@ Repository 使用 `ConcurrentHashMap` 保存短链，并返回集合副本；领
 
 异常统一转换为 JSON 响应，断链和次数耗尽使用 HTTP 410 Gone。
 
-短链业务接口的成功响应使用 `ApiResponse`，包含 `code`、`message`、`data` 和 `timestamp`，成功业务码为 `0`。已明确处理的参数或业务校验失败使用 HTTP 400；单条操作中的短码不存在使用 404；不支持的 HTTP Method 使用 405；不支持的 Content-Type 使用 415；短码生成重试耗尽和未预期异常使用 500。批量健康检测中的不存在短码会作为 HTTP 200 响应中的单条失败结果返回。`GET /api/health` 直接返回 `{"status":"UP"}`，不使用 `ApiResponse`。
+短链业务接口的成功响应使用 `ApiResponse`，包含 `code`、`message`、`data` 和 `timestamp`，成功业务码为 `0`。已明确处理的参数或业务校验失败使用 HTTP 400；单条操作中的短码不存在使用 404；健康探测池饱和使用 503 和业务码 `HEALTH_CHECK_BUSY`；不支持的 HTTP Method 使用 405；不支持的 Content-Type 使用 415；短码生成重试耗尽和未预期异常使用 500。批量健康检测中的不存在短码会作为 HTTP 200 响应中的单条失败结果返回。`GET /api/health` 直接返回 `{"status":"UP"}`，不使用 `ApiResponse`。
 
 ## 8. 断链检测
 
-健康检测基于原生 `Socket`/`SSLSocket` 实现最小化 HTTP 探测，DNS 只解析一次、校验全部结果后依次连接固定 IP，仅读取响应状态行。单次请求默认超时 3 秒（包含 TLS 握手和状态行读取），TCP 连接超时 2 秒；先发 HEAD，收到 405 后降级 GET，两种方法都只读取状态行，不读取完整响应体。任一安全地址返回 2xx 或 3xx 即视为可达，不跟随重定向。
+健康检测基于原生 `Socket`/`SSLSocket` 实现最小化 HTTP 探测，DNS 只解析一次、校验全部结果后依次连接固定 IP，仅读取响应状态行。TCP 连接上限为 2 秒；单个 URL 默认使用 3 秒绝对截止时间，统一覆盖 DNS、全部候选 IP、TCP、TLS、HEAD 和必要时的 GET，避免每个 IP 或请求阶段重复获得一份超时预算。到期任务会主动关闭 Socket，使握手或读取尽快退出。任一安全地址返回 2xx 或 3xx 即视为可达，不跟随重定向。
 
-健康检测只负责检测 URL，是否自动标记 `BROKEN` 由 Service 决定。普通短链检测一个 URL，盲盒检测全部候选 URL；盲盒只要有一个 URL 可达，整体就视为可达。`markBroken=true` 时，仅当所有 URL 都不可达、短链仍为 `ACTIVE`，且检测器自身没有抛出内部异常时才自动断链；检测器内部异常会在对应的 `urlResults` 中记录为 `health check failed`，不会把短链误标记为断链。
+健康检测只负责检测 URL，是否自动标记 `BROKEN` 由 Service 决定。普通短链检测一个 URL，盲盒检测全部候选 URL；盲盒只要有一个 URL 可达，整体就视为可达。请求体的 `markBroken` 未传时为 `false`；它为 `true` 时，仅当所有 URL 都不可达、短链仍为 `ACTIVE`，且检测器自身没有抛出内部异常时才自动断链；检测器内部异常会在对应的 `urlResults` 中记录为 `health check failed`，不会把短链误标记为断链。
 
 ## 9. SSRF 防护
 
@@ -107,18 +107,15 @@ Repository 使用 `ConcurrentHashMap` 保存短链，并返回集合副本；领
 
 DNS 解析失败返回不可达结果，不向客户端返回服务器内部网络信息。健康检测器不跟随重定向，因此 3xx 只表示原目标服务可达，不会自动访问未经重新校验的重定向目标。
 
-## 10. 批量检测线程池
+## 10. 批量检测容量与线程池
 
-批量检测使用独立的有界 `ThreadPoolTaskExecutor`：
+批量检测不再使用“外层短链线程池 + 内层 URL 线程池”的嵌套结构。请求线程只负责编排：先读取短链并展开候选 URL，再把网络任务一次性提交到全局有界 `ThreadPoolTaskExecutor`。该探测池固定并发 16、队列容量 64，`CompletableFuture` 显式使用此 Executor，不使用 `ForkJoinPool.commonPool` 或 `parallelStream`。这样总网络并发只有一个入口，不会出现外层任务占满线程后等待内层任务的线程饥饿。
 
-- 核心线程数：4；
-- 最大线程数：8；
-- 队列容量：100；
-- 空闲线程保活：60 秒；
-- 拒绝策略：`CallerRunsPolicy`；
-- 关闭时等待任务完成并释放线程池。
+探测池采用 `AbortPolicy`。当线程和队列均饱和时直接返回 HTTP 503 / `HEALTH_CHECK_BUSY`，不使用 `CallerRunsPolicy` 把慢网络 I/O 转移给 Web 请求线程。DNS 使用独立的固定 4 线程、队列容量 64 的有界池，防止不可控的平台 DNS 调用占满 URL 探测线程；应用关闭时两个线程池都会等待已提交任务并释放资源。
 
-`CompletableFuture` 显式传入该 Executor，不使用 `ForkJoinPool.commonPool`，也不使用 `parallelStream`。`shortCodes` 不能为空，原始请求列表最多包含 100 项，且每个短码必须先通过 6 到 8 位 Base62 格式校验；前置校验失败会直接返回 HTTP 400。通过校验后按首次出现顺序去重；每个任务独立转换检测异常为结果，单条检测失败不会导致整批失败。
+同步请求采用三层容量保护：盲盒最多 10 个候选 URL；`shortUrls` 原始请求列表最多 20 项；展开所有已找到短链后，原始 URL 配置总数最多 64 个。任一规模校验失败都会在提交网络任务前返回 HTTP 400。短链按首次出现顺序去重；同一批次完全相同的原始 URL 也只提交一次探测，再按各短链原有 URL 顺序回填完整 `urlResults`。
+
+整个同步批次共用 15 秒绝对截止时间，而不是逐个 Future 各等待 15 秒。批次截止时，尚未完成的 URL 返回 `health check batch timed out`，整体消息为 `health check incomplete`，并禁止据此自动断链；检测器内部异常同样只影响对应 URL，不中断其他结果。正常网络不可达仍保留完整明细，只有所有候选均不可达且不存在内部失败时，`markBroken=true` 才允许自动断链。
 
 ## 11. 多实例一致性问题
 

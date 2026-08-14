@@ -9,68 +9,58 @@ import org.springframework.validation.annotation.Validated;
 @ConfigurationProperties(prefix = "short-link.health-check")
 public class HealthCheckProperties {
 
-    /**
-     * 默认连接超时时间，单位为毫秒。
-     */
     private static final int DEFAULT_CONNECT_TIMEOUT_MILLIS = 2_000;
-    /**
-     * 默认单次请求超时时间，单位为毫秒。
-     */
     private static final int DEFAULT_REQUEST_TIMEOUT_MILLIS = 3_000;
-    /**
-     * 默认线程池核心线程数。
-     */
-    private static final int DEFAULT_CORE_POOL_SIZE = 4;
-    /**
-     * 默认线程池最大线程数。
-     */
-    private static final int DEFAULT_MAX_POOL_SIZE = 8;
-    /**
-     * 默认线程池有界队列容量。
-     */
-    private static final int DEFAULT_QUEUE_CAPACITY = 100;
-    /**
-     * 默认线程空闲保活时间，单位为秒。
-     */
-    private static final int DEFAULT_KEEP_ALIVE_SECONDS = 60;
+    private static final int DEFAULT_BATCH_TIMEOUT_MILLIS = 15_000;
+    private static final int DEFAULT_URL_PROBE_POOL_SIZE = 16;
+    private static final int DEFAULT_URL_PROBE_QUEUE_CAPACITY = 64;
+    private static final int DEFAULT_DNS_RESOLVER_POOL_SIZE = 4;
+    private static final int DEFAULT_DNS_RESOLVER_QUEUE_CAPACITY = 64;
 
     /**
-     * 建立网络连接的超时时间，单位为毫秒。
+     * 建立 TCP 连接允许使用的最长时间，仍受整个 URL 探测截止时间约束。
      */
     @Min(1)
     @Max(60_000)
     private int connectTimeoutMillis = DEFAULT_CONNECT_TIMEOUT_MILLIS;
 
     /**
-     * 单次健康检测请求的超时时间，单位为毫秒。
+     * 单个原始 URL 的绝对探测截止时间，覆盖 DNS、全部候选 IP、TCP/TLS、HEAD 及必要时的 GET。
      */
     @Min(1)
     @Max(120_000)
     private int requestTimeoutMillis = DEFAULT_REQUEST_TIMEOUT_MILLIS;
 
     /**
-     * 健康检测线程池核心线程数。
+     * 同步批量请求的绝对截止时间，避免客户端长时间占用 Web 请求线程。
      */
     @Min(1)
-    private int corePoolSize = DEFAULT_CORE_POOL_SIZE;
+    @Max(300_000)
+    private int batchTimeoutMillis = DEFAULT_BATCH_TIMEOUT_MILLIS;
 
     /**
-     * 健康检测线程池最大线程数。
+     * 全局原始 URL 探测线程数；网络 I/O 并发由该值统一约束。
      */
     @Min(1)
-    private int maxPoolSize = DEFAULT_MAX_POOL_SIZE;
+    private int urlProbePoolSize = DEFAULT_URL_PROBE_POOL_SIZE;
 
     /**
-     * 健康检测线程池有界队列容量。
+     * 原始 URL 探测线程池的有界等待队列容量。
      */
     @Min(1)
-    private int queueCapacity = DEFAULT_QUEUE_CAPACITY;
+    private int urlProbeQueueCapacity = DEFAULT_URL_PROBE_QUEUE_CAPACITY;
 
     /**
-     * 非核心线程空闲保活时间，单位为秒。
+     * DNS 解析使用独立线程池，避免探测线程相互等待造成饥饿。
      */
     @Min(1)
-    private int keepAliveSeconds = DEFAULT_KEEP_ALIVE_SECONDS;
+    private int dnsResolverPoolSize = DEFAULT_DNS_RESOLVER_POOL_SIZE;
+
+    /**
+     * DNS 解析线程池的有界等待队列容量。
+     */
+    @Min(1)
+    private int dnsResolverQueueCapacity = DEFAULT_DNS_RESOLVER_QUEUE_CAPACITY;
 
     public int getConnectTimeoutMillis() {
         return connectTimeoutMillis;
@@ -88,35 +78,43 @@ public class HealthCheckProperties {
         this.requestTimeoutMillis = requestTimeoutMillis;
     }
 
-    public int getCorePoolSize() {
-        return corePoolSize;
+    public int getBatchTimeoutMillis() {
+        return batchTimeoutMillis;
     }
 
-    public void setCorePoolSize(int corePoolSize) {
-        this.corePoolSize = corePoolSize;
+    public void setBatchTimeoutMillis(int batchTimeoutMillis) {
+        this.batchTimeoutMillis = batchTimeoutMillis;
     }
 
-    public int getMaxPoolSize() {
-        return maxPoolSize;
+    public int getUrlProbePoolSize() {
+        return urlProbePoolSize;
     }
 
-    public void setMaxPoolSize(int maxPoolSize) {
-        this.maxPoolSize = maxPoolSize;
+    public void setUrlProbePoolSize(int urlProbePoolSize) {
+        this.urlProbePoolSize = urlProbePoolSize;
     }
 
-    public int getQueueCapacity() {
-        return queueCapacity;
+    public int getUrlProbeQueueCapacity() {
+        return urlProbeQueueCapacity;
     }
 
-    public void setQueueCapacity(int queueCapacity) {
-        this.queueCapacity = queueCapacity;
+    public void setUrlProbeQueueCapacity(int urlProbeQueueCapacity) {
+        this.urlProbeQueueCapacity = urlProbeQueueCapacity;
     }
 
-    public int getKeepAliveSeconds() {
-        return keepAliveSeconds;
+    public int getDnsResolverPoolSize() {
+        return dnsResolverPoolSize;
     }
 
-    public void setKeepAliveSeconds(int keepAliveSeconds) {
-        this.keepAliveSeconds = keepAliveSeconds;
+    public void setDnsResolverPoolSize(int dnsResolverPoolSize) {
+        this.dnsResolverPoolSize = dnsResolverPoolSize;
+    }
+
+    public int getDnsResolverQueueCapacity() {
+        return dnsResolverQueueCapacity;
+    }
+
+    public void setDnsResolverQueueCapacity(int dnsResolverQueueCapacity) {
+        this.dnsResolverQueueCapacity = dnsResolverQueueCapacity;
     }
 }

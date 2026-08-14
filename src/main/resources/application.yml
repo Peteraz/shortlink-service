@@ -7,7 +7,8 @@ short-link:
   health-check:
     connect-timeout-millis: 2000
     request-timeout-millis: 3000
-    core-pool-size: 4
-    max-pool-size: 8
-    queue-capacity: 100
-    keep-alive-seconds: 60
+    batch-timeout-millis: 15000
+    url-probe-pool-size: 16
+    url-probe-queue-capacity: 64
+    dns-resolver-pool-size: 4
+    dns-resolver-queue-capacity: 64

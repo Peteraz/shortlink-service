@@ -2,6 +2,7 @@ package com.example.shortlink.health;
 
 import com.example.shortlink.config.HealthCheckProperties;
 import com.example.shortlink.dto.response.UrlHealthResult;
+import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.stereotype.Component;
 
 import javax.net.ssl.SNIHostName;
@@ -22,6 +23,13 @@ import java.net.UnknownHostException;
 import java.nio.charset.StandardCharsets;
 import java.time.Duration;
 import java.util.List;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.ExecutionException;
+import java.util.concurrent.Executor;
+import java.util.concurrent.ScheduledExecutorService;
+import java.util.concurrent.ScheduledFuture;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.TimeoutException;
 import java.util.regex.Pattern;
 
 /**
@@ -78,15 +86,23 @@ public class DefaultLinkHealthChecker implements LinkHealthChecker {
      * 建立 TCP 连接的超时时间。
      */
     private final int connectTimeoutMillis;
-    /**
-     * TLS 握手与读取响应状态行的超时时间。
-     */
+    /** DNS 到响应状态行的单 URL 绝对截止时间。 */
     private final int requestTimeoutMillis;
+    /** DNS 必须与 URL 探测线程隔离，否则探测线程可能全部阻塞等待自己队列中的 DNS 任务。 */
+    private final Executor dnsResolverExecutor;
+    /** 到期主动关闭 Socket，覆盖单靠 SO_TIMEOUT 无法约束的整个请求阶段。 */
+    private final ScheduledExecutorService deadlineScheduler;
 
-    public DefaultLinkHealthChecker(AddressPolicy addressPolicy, HealthCheckProperties properties) {
+    public DefaultLinkHealthChecker(
+            AddressPolicy addressPolicy,
+            HealthCheckProperties properties,
+            @Qualifier("dnsResolverExecutor") Executor dnsResolverExecutor,
+            @Qualifier("healthCheckDeadlineScheduler") ScheduledExecutorService deadlineScheduler) {
         this.addressPolicy = addressPolicy;
         this.connectTimeoutMillis = properties.getConnectTimeoutMillis();
         this.requestTimeoutMillis = properties.getRequestTimeoutMillis();
+        this.dnsResolverExecutor = dnsResolverExecutor;
+        this.deadlineScheduler = deadlineScheduler;
     }
 
     /**
@@ -95,6 +111,7 @@ public class DefaultLinkHealthChecker implements LinkHealthChecker {
     @Override
     public UrlHealthResult check(String url) {
         long startedAt = System.nanoTime();
+        long deadlineNanos = deadlineFrom(startedAt);
         URI uri;
         try {
             uri = new URI(url);
@@ -107,16 +124,15 @@ public class DefaultLinkHealthChecker implements LinkHealthChecker {
         InetAddress[] addresses;
         try {
             addressPolicy.validate(uri);
-            addresses = resolveAll(uri);
+            addresses = resolveAll(uri, deadlineNanos);
             addressPolicy.validateResolvedAddresses(addresses);
+        } catch (ProbeTimeoutException exception) {
+            return result(url, false, null, "request timed out", startedAt);
         } catch (AddressPolicyViolationException exception) {
             return result(url, false, null, exception.getMessage(), startedAt);
-        } catch (RuntimeException exception) {
-            // 策略实现自身的缺陷不能导致请求被放行，统一按拒绝处理。
-            return result(url, false, null, "request blocked by SSRF security policy", startedAt);
         }
 
-        return checkResolvedAddresses(url, uri, addresses, startedAt);
+        return checkResolvedAddresses(url, uri, addresses, startedAt, deadlineNanos);
     }
 
     /**
@@ -124,9 +140,17 @@ public class DefaultLinkHealthChecker implements LinkHealthChecker {
      * 不可用的 IPv4/IPv6 地址导致健康链接被误判为断链。
      */
     UrlHealthResult checkResolvedAddresses(String url, URI uri, InetAddress[] addresses, long startedAt) {
+        return checkResolvedAddresses(url, uri, addresses, startedAt, deadlineFrom(startedAt));
+    }
+
+    private UrlHealthResult checkResolvedAddresses(
+            String url, URI uri, InetAddress[] addresses, long startedAt, long deadlineNanos) {
         UrlHealthResult firstFailure = null;
         for (InetAddress address : addresses) {
-            UrlHealthResult attempt = checkAddress(url, uri, address, startedAt);
+            if (deadlineNanos - System.nanoTime() <= 0) {
+                return result(url, false, null, "request timed out", startedAt);
+            }
+            UrlHealthResult attempt = checkAddress(url, uri, address, startedAt, deadlineNanos);
             if (attempt.isReachable()) {
                 return attempt;
             }
@@ -137,12 +161,13 @@ public class DefaultLinkHealthChecker implements LinkHealthChecker {
         return firstFailure;
     }
 
-    private UrlHealthResult checkAddress(String url, URI uri, InetAddress target, long startedAt) {
+    private UrlHealthResult checkAddress(
+            String url, URI uri, InetAddress target, long startedAt, long deadlineNanos) {
         try {
-            int statusCode = executeRequest(uri, target, "HEAD");
+            int statusCode = executeRequest(uri, target, "HEAD", deadlineNanos);
             if (statusCode == METHOD_NOT_ALLOWED) {
-                // HEAD 不被支持时回退到 GET，仍然只读取状态行，不下载响应体。
-                statusCode = executeRequest(uri, target, "GET");
+                // HEAD 与回退 GET 共用同一个截止时间，不能各自重新获得 3 秒预算。
+                statusCode = executeRequest(uri, target, "GET", deadlineNanos);
             }
             return result(
                     url,
@@ -150,7 +175,7 @@ public class DefaultLinkHealthChecker implements LinkHealthChecker {
                     statusCode,
                     messageForStatus(statusCode),
                     startedAt);
-        } catch (SocketTimeoutException exception) {
+        } catch (ProbeTimeoutException | SocketTimeoutException exception) {
             return result(url, false, null, "request timed out", startedAt);
         } catch (ConnectException exception) {
             return result(url, false, null, "connection failed", startedAt);
@@ -163,15 +188,36 @@ public class DefaultLinkHealthChecker implements LinkHealthChecker {
      * 一次性解析 host 对应的全部 IP。解析失败按不可达处理，
      * 不向外抛出异常，也不泄露服务器内部网络信息。
      */
-    private InetAddress[] resolveAll(URI uri) {
+    private InetAddress[] resolveAll(URI uri, long deadlineNanos) {
         // IPv6 字面量 host 在 URI 中以方括号包裹，解析前需要去掉。
         String host = uri.getHost();
         String lookupHost = host.startsWith("[") && host.endsWith("]")
                 ? host.substring(1, host.length() - 1) : host;
+        CompletableFuture<InetAddress[]> future = CompletableFuture.supplyAsync(() -> {
+            try {
+                return InetAddress.getAllByName(lookupHost);
+            } catch (UnknownHostException exception) {
+                throw new AddressPolicyViolationException("DNS resolution failed");
+            }
+        }, dnsResolverExecutor);
         try {
-            return InetAddress.getAllByName(lookupHost);
-        } catch (UnknownHostException exception) {
-            throw new AddressPolicyViolationException("DNS resolution failed");
+            return future.get(remainingNanos(deadlineNanos), TimeUnit.NANOSECONDS);
+        } catch (TimeoutException exception) {
+            future.cancel(true);
+            throw new ProbeTimeoutException();
+        } catch (InterruptedException exception) {
+            future.cancel(true);
+            Thread.currentThread().interrupt();
+            throw new ProbeTimeoutException();
+        } catch (ExecutionException exception) {
+            Throwable cause = exception.getCause();
+            if (cause instanceof AddressPolicyViolationException policyException) {
+                throw policyException;
+            }
+            if (cause instanceof RuntimeException runtimeException) {
+                throw runtimeException;
+            }
+            throw new IllegalStateException("DNS resolution failed unexpectedly", cause);
         }
     }
 
@@ -180,12 +226,27 @@ public class DefaultLinkHealthChecker implements LinkHealthChecker {
      * 请求头中保留原始 Host；HTTPS 使用原始域名完成 SNI 与证书校验，
      * 因此即使连接地址是固定 IP，TLS 语义与直接访问原域名一致。
      */
-    private int executeRequest(URI uri, InetAddress target, String method) throws IOException {
+    private int executeRequest(URI uri, InetAddress target, String method, long deadlineNanos) throws IOException {
         boolean https = "https".equalsIgnoreCase(uri.getScheme());
         int port = uri.getPort() >= 0 ? uri.getPort() : (https ? DEFAULT_HTTPS_PORT : DEFAULT_HTTP_PORT);
-        try (Socket socket = createConnectedSocket(uri, target, port, https)) {
+        Socket socket = createSocket(uri, https);
+        ScheduledFuture<?> deadlineTask = deadlineScheduler.schedule(
+                () -> closeQuietly(socket), remainingNanos(deadlineNanos), TimeUnit.NANOSECONDS);
+        try (socket) {
+            connectAndHandshake(socket, target, port, deadlineNanos);
+            setRemainingReadTimeout(socket, deadlineNanos);
             writeRequest(socket, uri, method);
+            setRemainingReadTimeout(socket, deadlineNanos);
             return readStatusCode(socket);
+        } catch (IOException exception) {
+            if (deadlineNanos - System.nanoTime() <= 0) {
+                SocketTimeoutException timeout = new SocketTimeoutException("absolute request deadline exceeded");
+                timeout.initCause(exception);
+                throw timeout;
+            }
+            throw exception;
+        } finally {
+            deadlineTask.cancel(false);
         }
     }
 
@@ -193,48 +254,68 @@ public class DefaultLinkHealthChecker implements LinkHealthChecker {
      * 建立到固定地址的连接。HTTPS 时先创建未连接的 SSLSocket，
      * 以便在握手前设置 SNI 与主机名校验参数。
      */
-    private Socket createConnectedSocket(URI uri, InetAddress target, int port, boolean https) throws IOException {
+    private Socket createSocket(URI uri, boolean https) throws IOException {
         if (!https) {
-            Socket socket = new Socket();
-            try {
-                socket.connect(new InetSocketAddress(target, port), connectTimeoutMillis);
-                socket.setSoTimeout(requestTimeoutMillis);
-                return socket;
-            } catch (IOException | RuntimeException exception) {
-                closeAfterFailure(socket, exception);
-                throw exception;
-            }
+            return new Socket();
         }
 
         SSLSocket socket = (SSLSocket) SSLSocketFactory.getDefault().createSocket();
-        try {
-            SSLParameters parameters = socket.getSSLParameters();
-            String host = uri.getHost();
-            if (!isIpLiteral(host)) {
-                // RFC 6066 禁止在 SNI 中携带 IP 字面量，仅域名需要设置 SNI。
-                parameters.setServerNames(List.of(new SNIHostName(host)));
-            }
-            // 启用 HTTPS 主机名校验，确保证书与原始域名匹配。
-            parameters.setEndpointIdentificationAlgorithm("HTTPS");
-            socket.setSSLParameters(parameters);
-            // 连接地址固定为通过校验的 IP，但 TLS 握手仍按原始域名进行 SNI 与证书校验。
-            socket.connect(new InetSocketAddress(target, port), connectTimeoutMillis);
-            // SO_TIMEOUT 同样覆盖 TLS 握手，防止对端接受 TCP 后一直不返回握手数据。
-            socket.setSoTimeout(requestTimeoutMillis);
-            socket.startHandshake();
-            return socket;
-        } catch (IOException | RuntimeException exception) {
-            closeAfterFailure(socket, exception);
-            throw exception;
+        SSLParameters parameters = socket.getSSLParameters();
+        String host = uri.getHost();
+        if (!isIpLiteral(host)) {
+            parameters.setServerNames(List.of(new SNIHostName(host)));
+        }
+        parameters.setEndpointIdentificationAlgorithm("HTTPS");
+        socket.setSSLParameters(parameters);
+        return socket;
+    }
+
+    private void connectAndHandshake(Socket socket, InetAddress target, int port, long deadlineNanos)
+            throws IOException {
+        int connectTimeout = Math.min(connectTimeoutMillis, remainingMillis(deadlineNanos));
+        socket.connect(new InetSocketAddress(target, port), connectTimeout);
+        setRemainingReadTimeout(socket, deadlineNanos);
+        if (socket instanceof SSLSocket sslSocket) {
+            sslSocket.startHandshake();
         }
     }
 
-    private void closeAfterFailure(Socket socket, Exception failure) {
+    private void setRemainingReadTimeout(Socket socket, long deadlineNanos) throws IOException {
+        socket.setSoTimeout(remainingMillis(deadlineNanos));
+    }
+
+    private int remainingMillis(long deadlineNanos) throws SocketTimeoutException {
+        long nanos = remainingNanos(deadlineNanos);
+        long millis = TimeUnit.NANOSECONDS.toMillis(nanos);
+        if (TimeUnit.MILLISECONDS.toNanos(millis) < nanos) {
+            millis++;
+        }
+        return (int) Math.min(Integer.MAX_VALUE, Math.max(1, millis));
+    }
+
+    private long remainingNanos(long deadlineNanos) throws ProbeTimeoutException {
+        long remaining = deadlineNanos - System.nanoTime();
+        if (remaining <= 0) {
+            throw new ProbeTimeoutException();
+        }
+        return remaining;
+    }
+
+    private long deadlineFrom(long startedAt) {
+        long timeoutNanos = TimeUnit.MILLISECONDS.toNanos(requestTimeoutMillis);
+        long deadline = startedAt + timeoutNanos;
+        return deadline < startedAt ? Long.MAX_VALUE : deadline;
+    }
+
+    private void closeQuietly(Socket socket) {
         try {
             socket.close();
-        } catch (IOException closeException) {
-            failure.addSuppressed(closeException);
+        } catch (IOException ignored) {
+            // 截止时间清理路径无需覆盖原始网络异常。
         }
+    }
+
+    private static final class ProbeTimeoutException extends RuntimeException {
     }
 
     /**

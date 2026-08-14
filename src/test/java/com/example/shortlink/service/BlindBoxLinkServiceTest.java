@@ -12,6 +12,7 @@ import com.example.shortlink.exception.BlindBoxDuplicateUrlException;
 import com.example.shortlink.exception.BlindBoxExhaustedException;
 import com.example.shortlink.exception.BlindBoxUrlInsufficientException;
 import com.example.shortlink.exception.BrokenLinkException;
+import com.example.shortlink.exception.BusinessException;
 import com.example.shortlink.generator.ShortCodeGenerator;
 import com.example.shortlink.mapper.ShortLinkMapper;
 import com.example.shortlink.repository.InMemoryShortLinkRepository;
@@ -84,6 +85,20 @@ class BlindBoxLinkServiceTest {
                         List.of("https://example.com/one", "HTTPS://EXAMPLE.COM/one"),
                         "wechat",
                         10)));
+    }
+
+    @Test
+    void shouldRejectBlindBoxWithMoreThanTenUrls() {
+        ShortLinkService service = createService(
+                new InMemoryShortLinkRepository(), new SequenceGenerator("abc123"));
+        List<String> urls = java.util.stream.IntStream.range(0, 11)
+                .mapToObj(index -> "https://example.com/" + index)
+                .toList();
+
+        BusinessException exception = assertThrows(BusinessException.class, () ->
+                service.createBlindBoxLink(new CreateBlindBoxLinkRequest(urls, "wechat", 10)));
+
+        assertEquals("BLIND_BOX_URL_LIMIT_EXCEEDED", exception.getCode());
     }
 
     @Test

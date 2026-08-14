@@ -84,12 +84,13 @@ public class ShortLinkController {
      */
     @GetMapping("/queryByPage")
     public ApiResponse<PageResponse<ShortLinkResponse>> query(
-            @RequestParam(required = false) String shortCode,
+            @RequestParam(required = false) String shortUrl,
             @RequestParam(required = false) String channel,
             @RequestParam(required = false) LinkStatus status,
             @RequestParam(required = false) LinkType type,
             @RequestParam(defaultValue = "0") int page,
             @RequestParam(defaultValue = "20") int size) {
+        String shortCode = shortUrl == null ? null : shortUrlParser.extractShortCode(shortUrl);
         ShortLinkQuery query = new ShortLinkQuery(shortCode, channel, status, type, page, size);
         return ApiResponse.success(shortLinkService.query(query));
     }

@@ -45,9 +45,10 @@ public class ShortLinkServiceImpl implements ShortLinkService {
      */
     private static final int MIN_BLIND_BOX_URLS = 2;
     /**
-     * 盲盒候选 URL 的最大数量。
+     * 盲盒候选 URL 的最大数量。同步健康检测会遍历候选 URL，
+     * 因此限制规模以控制创建成本和最坏探测时延。
      */
-    private static final int MAX_BLIND_BOX_URLS = 100;
+    private static final int MAX_BLIND_BOX_URLS = 10;
     /**
      * 盲盒有效次数的最大值。
      */

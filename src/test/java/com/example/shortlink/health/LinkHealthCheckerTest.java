@@ -16,6 +16,9 @@ import java.net.ServerSocket;
 import java.net.Socket;
 import java.net.URI;
 import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 
@@ -29,11 +32,15 @@ class LinkHealthCheckerTest {
     private int port;
     private AtomicInteger head405GetCount;
     private CountDownLatch timeoutRelease;
+    private ExecutorService dnsResolverExecutor;
+    private ScheduledExecutorService deadlineScheduler;
 
     @BeforeEach
     void setUp() throws IOException {
         head405GetCount = new AtomicInteger();
         timeoutRelease = new CountDownLatch(1);
+        dnsResolverExecutor = Executors.newFixedThreadPool(2);
+        deadlineScheduler = Executors.newSingleThreadScheduledExecutor();
         server = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
         server.createContext("/ok", exchange -> respond(exchange, 200, "ok"));
         server.createContext("/redirect", exchange -> {
@@ -67,6 +74,8 @@ class LinkHealthCheckerTest {
     void tearDown() {
         timeoutRelease.countDown();
         server.stop(0);
+        dnsResolverExecutor.shutdownNow();
+        deadlineScheduler.shutdownNow();
     }
 
     @Test
@@ -119,8 +128,8 @@ class LinkHealthCheckerTest {
             Thread serverThread = new Thread(() -> {
                 try (Socket ignored = stalledTlsServer.accept()) {
                     timeoutRelease.await(5, TimeUnit.SECONDS);
-                } catch (IOException exception) {
-                    throw new AssertionError(exception);
+                } catch (IOException ignored) {
+                    // 冷启动时截止时间可能在 accept 前到达；测试清理关闭 ServerSocket 属于预期路径。
                 } catch (InterruptedException exception) {
                     Thread.currentThread().interrupt();
                 }
@@ -137,6 +146,7 @@ class LinkHealthCheckerTest {
                 assertTrue(result.getMessage().contains("timed out"));
             } finally {
                 timeoutRelease.countDown();
+                stalledTlsServer.close();
                 serverThread.join(1_000);
             }
 
@@ -203,7 +213,8 @@ class LinkHealthCheckerTest {
         HealthCheckProperties properties = new HealthCheckProperties();
         properties.setConnectTimeoutMillis(200);
         properties.setRequestTimeoutMillis(requestTimeoutMillis);
-        return new DefaultLinkHealthChecker(addressPolicy, properties);
+        return new DefaultLinkHealthChecker(
+                addressPolicy, properties, dnsResolverExecutor, deadlineScheduler);
     }
 
     private String url(String path) {

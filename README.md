@@ -55,8 +55,8 @@ POST  /api/v1/short-links/blind-box
 POST  /api/v1/short-links/query
 POST  /api/v1/short-links/resolve
 POST  /api/v1/short-links/broken
-GET   /api/v1/short-links/queryByPage?shortCode=&channel=&status=&type=&page=0&size=20
-POST  /api/v1/short-links/health-check/{shortCode}?markBroken=false
+GET   /api/v1/short-links/queryByPage?shortUrl=&channel=&status=&type=&page=0&size=20
+POST  /api/v1/short-links/health-check
 POST  /api/v1/short-links/batch-health-check
 GET   /s/{shortCode}
 GET   /api/v1/redirect/s/{shortCode} (兼容入口)
@@ -65,16 +65,19 @@ GET   /api/health
 
 `POST /api/v1/short-links/query` 接收完整短链，只查询详情，不增加解析次数或消耗盲盒次数。
 `POST /api/v1/short-links/resolve` 接收完整短链并返回 JSON 解析详情；`GET /s/{shortCode}` 会执行真实解析并跳转。
+`GET /api/v1/short-links/queryByPage` 的 `shortUrl` 是可选筛选条件；传入时从完整短链提取短码。也可按 `channel`、`status`、`type` 组合筛选并分页。
 
 短链状态只有 `ACTIVE` 和 `BROKEN`。盲盒最后一次成功解析会将剩余次数扣为 0 并标记为 `BROKEN`；该次解析仍成功返回，后续解析返回 HTTP 410，业务码为 `BLIND_BOX_EXHAUSTED`。其他断链的后续解析返回 HTTP 410，业务码为 `BROKEN_LINK`。
 
-除跳转接口和 `GET /api/health` 外，接口成功响应使用 `ApiResponse`（`code`、`message`、`data`、`timestamp`）。已明确处理的请求或业务校验错误返回 HTTP 400；单条操作中的短码不存在返回 404；断链或盲盒耗尽返回 410；不支持的 HTTP Method 返回 405；不支持的 Content-Type 返回 415；短码生成重试耗尽或未预期异常返回 500。批量健康检测中的不存在短码不会中断请求，而是作为 HTTP 200 响应中的单条失败结果返回。
+除跳转接口和 `GET /api/health` 外，接口成功响应使用 `ApiResponse`（`code`、`message`、`data`、`timestamp`）。已明确处理的请求或业务校验错误返回 HTTP 400；单条操作中的短码不存在返回 404；断链或盲盒耗尽返回 410；健康探测线程池饱和返回 503 和业务码 `HEALTH_CHECK_BUSY`；不支持的 HTTP Method 返回 405；不支持的 Content-Type 返回 415；短码生成重试耗尽或未预期异常返回 500。批量健康检测中的不存在短码不会中断请求，而是作为 HTTP 200 响应中的单条失败结果返回。
 
-健康检测使用 Java 原生 `Socket`/`SSLSocket`：先解析并校验全部 DNS 地址，再固定到已校验的 IP 发起连接。单条检测先发送 HEAD，收到 405 时降级为 GET；2xx 和 3xx 视为可达，检测器不自动跟随重定向。默认连接超时为 2 秒、单次请求超时为 3 秒。
+健康检测使用 Java 原生 `Socket`/`SSLSocket`：先解析一次并校验全部 DNS 地址，再固定到已校验的 IP 发起连接。单条检测先发送 HEAD，收到 405 时降级为 GET；2xx 和 3xx 视为可达，检测器不自动跟随重定向。默认 TCP 连接超时为 2 秒；单个 URL 使用 3 秒绝对截止时间，该预算共同覆盖 DNS、全部候选 IP、TCP、TLS、HEAD 以及必要时的 GET，不会因多 IP 或 HEAD 回退而重复获得 3 秒。
 
-当 `markBroken=true` 时，只有所有原始 URL 都不可达、短链当前仍为 `ACTIVE`，且检测器自身没有抛出内部异常，才会自动标记断链。检测器内部异常会在对应的 `urlResults` 中记录为 `health check failed`，但不会改变短链状态。
+健康检测请求体中的 `markBroken` 为可选布尔值，未传时默认为 `false`。当它为 `true` 时，只有所有原始 URL 都不可达、短链当前仍为 `ACTIVE`，且检测器自身没有抛出内部异常，才会自动标记断链。检测器内部异常会在对应的 `urlResults` 中记录为 `health check failed`，但不会改变短链状态。
 
-批量检测的 `shortCodes` 不能为空，最多接受 100 个短码（按请求原始列表计数），且每个短码都必须是 6 到 8 位 Base62 字符；这些前置校验失败会直接返回 HTTP 400。通过校验后会按首次出现顺序去重。每个短码在独立任务中检测，单条检测失败仅返回该条失败结果，不影响同一批次中的其他短码；使用独立的有界线程池（核心线程 4、最大线程 8、队列 100、CallerRunsPolicy），不会使用 `ForkJoinPool.commonPool` 或 `parallelStream`。
+单条健康检测请求体使用 `shortUrl`，批量检测使用 `shortUrls`；二者均可携带 `markBroken`，未传时默认 `false`。短链均须为完整 URL，控制器从路径最后一段提取短码后再进入内部检测。批量列表不能为空，最多接受 20 条短链（按请求原始列表计数），且展开普通/盲盒配置后最多允许探测 64 个原始 URL；超过任一上限直接返回 HTTP 400。每条提取出的短码都必须是 6 到 8 位 Base62 字符，通过校验后按首次出现顺序去重。
+
+全部原始 URL 统一提交到固定 16 线程、队列容量 64 的有界探测池，不再使用外层批量线程池；同一批次完全相同的 URL 只探测一次，再把结果回填给相关短链。同步批量请求共用 15 秒绝对截止时间，超时任务作为 `health check incomplete` 返回且不会触发自动断链。队列饱和使用快速拒绝而不是 `CallerRunsPolicy`，避免 Web 请求线程被迫执行慢网络任务。DNS 解析另用固定 4 线程、队列 64 的隔离池，避免平台 DNS 阻塞拖垮 URL 探测池。
 
 健康检测会在请求前解析域名并拒绝 `localhost`、回环、链路本地、site-local、组播、未指定及受限 IPv4-mapped 地址。DNS 解析失败也会作为不可达结果返回，不向客户端暴露服务器网络信息。
 
@@ -91,16 +94,17 @@ short-link:
   health-check:
     connect-timeout-millis: 2000
     request-timeout-millis: 3000
-    core-pool-size: 4
-    max-pool-size: 8
-    queue-capacity: 100
-    keep-alive-seconds: 60
+    batch-timeout-millis: 15000
+    url-probe-pool-size: 16
+    url-probe-queue-capacity: 64
+    dns-resolver-pool-size: 4
+    dns-resolver-queue-capacity: 64
 ```
 
 短码长度支持 6、7、8 位，应用启动时校验配置。
 配置项只决定后续新生成短码的长度，短码校验始终接受 6、7、8 位，因此从 7 位切换到 6 位或 8 位不会因长度校验使历史短码失效。
 
-长链接必须是长度不超过 2048 的 HTTP/HTTPS URI，且必须包含 host。输入会去除首尾空格，并将 scheme 和 host 规范化为小写；路径、查询参数、片段、用户信息和端口保持原样。渠道为空时使用 `default`；非空渠道最多 64 个字符，只允许 Unicode 字母、数字、下划线和连字符。请求中的短码必须为 6 到 8 位 Base62 字符。盲盒候选 URL 数量为 2 到 100 个，规范化后不得重复；`validTimes` 为 1 到 1,000,000。主动断链原因去除首尾空格后必须为 1 到 200 个字符；分页 `page` 从 0 开始，`size` 为 1 到 100。
+长链接必须是长度不超过 2048 的 HTTP/HTTPS URI，且必须包含 host。输入会去除首尾空格，并将 scheme 和 host 规范化为小写；路径、查询参数、片段、用户信息和端口保持原样。渠道为空时使用 `default`；非空渠道最多 64 个字符，只允许 Unicode 字母、数字、下划线和连字符。请求中的短码必须为 6 到 8 位 Base62 字符。盲盒候选 URL 数量为 2 到 10 个，规范化后不得重复；`validTimes` 为 1 到 1,000,000。主动断链原因去除首尾空格后必须为 1 到 200 个字符；分页 `page` 从 0 开始，`size` 为 1 到 100。
 
 ## 测试和启动
 
@@ -138,16 +142,16 @@ curl -i "http://localhost:8090/s/abc123"
 curl -X POST "http://localhost:8090/api/v1/short-links/broken" -H "Content-Type: application/json" -d '{"shortUrl":"http://localhost:8090/s/abc123","reason":"运营人员主动下线"}'
 
 # 检测单条短链，不改变状态
-curl -X POST "http://localhost:8090/api/v1/short-links/health-check/abc123"
+curl -X POST "http://localhost:8090/api/v1/short-links/health-check" -H "Content-Type: application/json" -d '{"shortUrl":"http://localhost:8090/s/abc123"}'
 
 # 检测单条短链，全部原始 URL 不可达时自动标记断链
-curl -X POST "http://localhost:8090/api/v1/short-links/health-check/abc123?markBroken=true"
+curl -X POST "http://localhost:8090/api/v1/short-links/health-check" -H "Content-Type: application/json" -d '{"shortUrl":"http://localhost:8090/s/abc123","markBroken":true}'
 
-# 批量检测；不存在的短码会作为单条失败结果返回
-curl -X POST "http://localhost:8090/api/v1/short-links/batch-health-check" -H "Content-Type: application/json" -d '{"shortCodes":["abc123","def456"],"markBroken":false}'
+# 批量检测；不存在的短链会作为单条失败结果返回
+curl -X POST "http://localhost:8090/api/v1/short-links/batch-health-check" -H "Content-Type: application/json" -d '{"shortUrls":["http://localhost:8090/s/abc123","http://localhost:8090/s/def456"],"markBroken":false}'
 
-# 条件查询
-curl "http://localhost:8090/api/v1/short-links/queryByPage?channel=wechat&status=ACTIVE&type=NORMAL&page=0&size=20"
+# 条件查询；shortUrl 为完整短链，可与其他筛选条件组合
+curl "http://localhost:8090/api/v1/short-links/queryByPage?shortUrl=http%3A%2F%2Flocalhost%3A8090%2Fs%2Fabc123&channel=wechat&status=ACTIVE&type=NORMAL&page=0&size=20"
 ```
 
 ## 并发安全和随机性
@@ -156,7 +160,7 @@ curl "http://localhost:8090/api/v1/short-links/queryByPage?channel=wechat&status
 - 每条 `ShortLink` 都有独立的 `ReentrantLock` 状态锁，不存在全局锁竞争。解析次数、盲盒剩余次数、状态、断链原因和最近检测时间都在这把锁内读写。
 - 盲盒只有在锁内成功扣减一次有效次数后才会选择 URL，避免超发和负数。
 - 解析、主动/自动断链及响应快照读取使用同一把锁，避免状态、次数和断链原因在并发下出现混合结果；网络健康检测本身在锁外执行，不会长时间阻塞同一短链的其他状态操作。
-- 批量检测使用核心线程 4、最大线程 8、容量 100 的有界线程池，并显式传入 `CompletableFuture`。
+- 健康检测使用固定 16 线程、队列 64 的全局有界 URL 探测池；批次内相同 URL 共享一次探测，过载时快速返回 503。线程数仍应根据目标响应时间、CPU/内存、连接数和压测数据调整。
 - 盲盒通过 `ThreadLocalRandom` 在候选下标范围内均匀选择；有限样本不保证完全平均。
 
 ## SSRF 安全说明

@@ -298,6 +298,12 @@ class ShortLinkControllerTest {
                 .andExpect(jsonPath("$.data.content[0].shortCode").value(second));
 
         mockMvc.perform(get("/api/v1/short-links/queryByPage")
+                        .param("shortUrl", "http://localhost:8090/s/" + first))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.totalElements").value(1))
+                .andExpect(jsonPath("$.data.content[0].shortCode").value(first));
+
+        mockMvc.perform(get("/api/v1/short-links/queryByPage")
                         .param("channel", channel)
                         .param("type", "BLIND_BOX"))
                 .andExpect(status().isOk())

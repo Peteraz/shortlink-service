@@ -1,9 +1,12 @@
 package com.example.shortlink.controller;
 
 import com.example.shortlink.dto.request.BatchHealthCheckRequest;
+import com.example.shortlink.dto.request.ShortLinkRequest;
 import com.example.shortlink.dto.response.ApiResponse;
 import com.example.shortlink.dto.response.HealthCheckResponse;
 import com.example.shortlink.service.LinkHealthService;
+import com.example.shortlink.validator.ShortUrlParser;
+import jakarta.validation.Valid;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.List;
@@ -16,24 +19,28 @@ public class LinkHealthController {
      * 短链可达性检测服务。
      */
     private final LinkHealthService linkHealthService;
+    private final ShortUrlParser shortUrlParser;
 
-    public LinkHealthController(LinkHealthService linkHealthService) {
+    public LinkHealthController(LinkHealthService linkHealthService, ShortUrlParser shortUrlParser) {
         this.linkHealthService = linkHealthService;
+        this.shortUrlParser = shortUrlParser;
     }
 
     /**
-     * 检测单个短码是否可达；markBroken 为 true 时允许自动标记断链。
+     * 检测单个完整短链是否可达；markBroken 为 true 时允许自动标记断链。
      */
-    @PostMapping("/health-check/{shortCode}")
-    public ApiResponse<HealthCheckResponse> healthCheck(@PathVariable String shortCode, @RequestParam(defaultValue = "false") boolean markBroken) {
-        return ApiResponse.success(linkHealthService.healthCheck(shortCode, markBroken));
+    @PostMapping("/health-check")
+    public ApiResponse<HealthCheckResponse> healthCheck(@Valid @RequestBody ShortLinkRequest request) {
+        String shortCode = shortUrlParser.extractShortCode(request.getShortUrl());
+        return ApiResponse.success(linkHealthService.healthCheck(shortCode, request.isMarkBroken()));
     }
 
     /**
-     * 批量检测短码是否可达；每个短码独立返回检测结果。
+     * 批量检测完整短链是否可达；每条短链独立返回检测结果。
      */
     @PostMapping("/batch-health-check")
-    public ApiResponse<List<HealthCheckResponse>> batchHealthCheck(@RequestBody BatchHealthCheckRequest request) {
-        return ApiResponse.success(linkHealthService.batchHealthCheck(request));
+    public ApiResponse<List<HealthCheckResponse>> batchHealthCheck(@Valid @RequestBody BatchHealthCheckRequest request) {
+        List<String> shortCodes = request.getShortUrls().stream().map(shortUrlParser::extractShortCode).toList();
+        return ApiResponse.success(linkHealthService.batchHealthCheck(shortCodes, request.isMarkBroken()));
     }
 }

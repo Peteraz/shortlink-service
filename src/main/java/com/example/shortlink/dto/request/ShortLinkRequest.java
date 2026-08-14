@@ -12,6 +12,8 @@ public class ShortLinkRequest {
     /**
      * 短链。
      */
-    @NotBlank(message="短链不能为空")
+    @NotBlank(message = "短链不能为空")
     private String shortUrl;
+
+    private boolean markBroken;
 }
